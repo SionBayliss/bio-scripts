@@ -1,0 +1,162 @@
+#!/usr/bin/env perl
+ 
+use strict;
+use warnings qw(all);
+
+use Getopt::Long qw(GetOptions :config no_ignore_case);
+use Pod::Usage;
+
+# distance matrix from alignment 
+
+=head1  SYNOPSIS
+
+	align_to_distmat -i /path/to/input_file.fasta -i /path/to/output_file 
+
+ Input/output:
+ -i|--input 	input fasta file [required]
+ -o|--output 	output distance matrix file [required] 
+ 
+ Usage:
+ -q|--quiet	switch off verbose
+ -h|--help 	usage information
+ 
+=cut
+
+# turn off buffering for real time feedback.
+$| = 1;
+
+# command line options
+my $input = '';
+my $output = '';
+
+my $format = "matrix";
+
+my $quiet = 0;
+my $help = 0;
+
+pod2usage(1) if scalar(@ARGV) == 0;
+GetOptions(
+
+	'input=s' 	=> \$input,
+	'output=s'	=> \$output,
+	
+	'format=s' => \$format,
+
+	'quiet'	=> \$quiet,	
+	'help|?' 	=> \$help,
+
+) or die pod2usage(1);
+pod2usage(1) if $help;
+
+# parse fasta
+my $sample = "";
+my %sequences = ();
+#my $test_count = 0;
+open INPUT ,"$input" or die " - ERROR: $input did not open.\n";
+for (<INPUT>){
+	if(/^\>(.+)*/){
+		$sample = $1;
+		#last if ++$test_count > 2;
+	}
+	elsif(/(.+)/){
+	
+		my $seq = $1;
+		$seq =~ s/atcgn/ATCGN/g;
+		
+		# add to hash
+		if ( $sequences{$sample} ){
+			$sequences{$sample} = $sequences{$sample}.$seq;
+		}else{
+			$sequences{$sample} = $seq;
+		}
+
+	}	
+}close INPUT;
+
+# check all sequences are the same length
+my $length_check = '';
+for my $s ( keys %sequences ){
+	my $l = length($sequences{$s});
+	$length_check = $l if ($length_check eq "");
+	die " - ERROR: sample $s ($l bp) does not have expected sequence length ($length_check bp)\n" if $l != $length_check;
+}
+
+# feedback
+print "\n - alignment length = $length_check\n\n" unless $quiet == 1;
+
+# prepare output 
+open OUTPUT ,">$output" or die " - ERROR: $output did not open.\n";
+
+# headers 
+my @headers = sort keys %sequences;
+my $sample_no = scalar(@headers);
+
+
+# calculate and store pairwise distances
+my %pairwise = ();
+my $count = 0;
+
+print "\r - 0 of $sample_no samples processed" unless $quiet == 1;
+for my $h1 (@headers){
+
+	++$count;
+	print "\r - $count of $sample_no samples processed" unless $quiet == 1;
+	
+	for my $h2 (@headers){
+	
+		# only process new comparisons
+		if ( !($pairwise{$h1}{$h2}) && !($pairwise{$h2}{$h1}) ){
+				
+			my $seq1=$sequences{$h1};
+			my $seq2=$sequences{$h2};
+		
+			my $differences = 0;
+		
+			for my $pos ( 0..($length_check-1) ){
+		
+				my $s1 = substr($seq1, $pos, 1);
+				my $s2 = substr($seq2, $pos, 1);
+			
+				if( ($s1 ne $s2) && ($s1 ne "N") && ($s2 ne "N") && ($s1 ne "\-") && ($s2 ne "\-") ){++$differences}
+				#if( ($s1 ne $s2) && ($s1 ne "\-") && ($s2 ne "\-") ){++$differences}				
+			}
+		
+			# store differences
+			$pairwise{$h1}{$h2} = $differences;
+			$pairwise{$h2}{$h1} = $differences;
+		
+		}
+		
+	}
+}
+print "\r - $count of $sample_no samples processed\n" unless $quiet == 1;
+
+# print outputs
+
+# print headers
+print OUTPUT "id\t", join("\t",@headers), "\n";
+
+# print pairwise comparisons
+for my $h1 (@headers){
+
+	my @out = ();
+	push(@out, $h1);
+	
+	for my $h2 (@headers){
+	
+		if ( !$pairwise{$h1}{$h2} ){
+			push(@out, "0");
+		}else{
+			push(@out, $pairwise{$h1}{$h2});
+		}
+		
+	}
+	
+	# print 
+	print OUTPUT join("\t", @out), "\n";
+}
+
+# feedback
+print "\n - completed\n\n" unless $quiet == 1;
+
+exit
