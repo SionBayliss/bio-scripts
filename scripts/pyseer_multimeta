@@ -13,14 +13,29 @@ use File::Basename;
 
 	pyseer_multimeta 
 	
- Input/output:
- -i|--input 	input fasta file [required]
- -o|--output 	output distance matrix file [required] 
+ Input variants:
+ --pres 	input variant presence absence file [optional]
+ --vcf	input vcf file [optional]
+ --kmers	input kmer file [optional]
+ [required: one of the above]
  
+ Phenotype/Similarities:
+ --sim	similarity matrix [required]
+ --phen	phenotype table [required] 
+ 
+ Output:
+ --output 	output directory [required] 
+ --scripts	path to pyseer scripts, enables additional 
+ 		outputs [optional] 
+  
  Usage:
- -q|--quiet	switch off verbose
+ --r-lmm	reuse lmm file, only use if metadata and variants
+ 		match exactly [default: off] 
+ --no-qq	switch off qqplot [default: on if --scripts]
+ --cpus	number of cpus to use for analysis [default: 1]
+ -q|--quiet	switch off verbose [not implemented]
  -h|--help 	usage information
- 
+  
 =cut
 
 # command line options
@@ -33,6 +48,8 @@ my $phenotype = '';
 my $output_dir = '';
 my $pyseer_scripts = '';
 
+my $rlmm = 0;
+my $no_qq = 0;
 my $cpus = 1;
 my $quiet = 0;
 my $help = 0;
@@ -49,6 +66,8 @@ GetOptions(
 	'output=s' => \$output_dir,
 	'scripts=s' => \$pyseer_scripts,
 
+	'r-lmm'	=> \$rlmm,
+	'no-qq'	=> \$no_qq,
 	'cpus=i'	=> \$cpus,
 	'quiet'	=> \$quiet,	
 	'help|?' 	=> \$help,
@@ -182,15 +201,22 @@ for my $i (0..$#phenotypes){
 		
 		# NOTE: sample lists have to match between runs - if the original LMM removes some isolates from the sample list then --load-lmm will throw an error in later runs
 		# either check inputs abeforehand or run LMM each time
-		 
-		#if ( $lmm_file eq "" ){ 
+		
+		if ($rlmm == 0){
 			$lmm_file = "$p_out/lmm"; 
 			push(@args, "--save-lmm $lmm_file"); 
 			push(@args, "--similarity $sim");  
-		#}else{
-		#	push(@args, "--load-lmm $lmm_file.npz");	
-		#}
+		}else{
+			if ( $lmm_file eq "" ){ 
+				$lmm_file = "$p_out/lmm"; 
+				push(@args, "--save-lmm $lmm_file"); 
+				push(@args, "--similarity $sim");  
+			}else{
+				push(@args, "--load-lmm $lmm_file.npz");	
+			}
+		}
 		
+		# make argument line
 		my $args_in = join(" ", @args);
 	
 		# command line
@@ -239,9 +265,11 @@ for my $i (0..$#phenotypes){
 			`awk \'\{ if (\$4 <= $sig_thresh) print \$0 \}\' < $p_out/$f.results.tsv >> $p_out/$f.sig_hits.tsv`;
 			
  			# qqplot
- 			print "\t- creating qqplot\n";
-			my $qq_out = `python $pyseer_scripts/qq_plot.py --output $p_out/$f\_qqplot.png $p_out/$f.results.tsv 2>&1`;
-			print " - WARNING: qq_plot.py failed:\n$qq_out\n" if $?;		
+ 			unless ($no_qq == 1){
+ 				print "\t- creating qqplot\n";
+				my $qq_out = `python $pyseer_scripts/qq_plot.py --output $p_out/$f\_qqplot.png $p_out/$f.results.tsv 2>&1`;
+				print " - WARNING: qq_plot.py failed:\n$qq_out\n" if $?;	
+			}	
 		
 		}		
 		
