@@ -1,0 +1,105 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings qw(all);
+use File::Basename;
+use Getopt::Long qw(GetOptions :config no_ignore_case);
+use Pod::Usage;
+
+# make summary tables from abricate output.
+
+=head1  SYNOPSIS
+
+	abricate_to_table.pl -i /path/to/abricate_file -o /path/to/output_file
+
+ Input/output:
+ -i|--input 	input abricate outputs [required]
+ -o|--output 	annotated input file for output [required] 
+ 
+ Usage:
+ -q|--quiet	switch off verbose
+ -h|--help 	usage information
+ 
+=cut
+
+# command line options
+my $input = '';
+my $output = '';
+
+my $quiet = 0;
+my $help = 0;
+
+pod2usage(1) if scalar(@ARGV) == 0;
+GetOptions(
+
+	'input=s' 	=> \$input,
+	'output=s'	=> \$output,
+	
+	'quiet'	=> \$quiet,	
+	'help|?' 	=> \$help,
+
+) or die pod2usage(1);
+pod2usage(1) if $help;
+
+# check inputs
+die "ERROR: provide input abricate file\n" if $input eq "";
+die "ERROR: provide output file path\n" if $output eq "";
+
+
+# Parse table and add resistance column.
+my %g_list = ();
+my %s_list = ();
+open TABLE, $input or die $!;
+while(<TABLE>){
+	
+	my $line=$_;
+	chomp $line;
+	
+	unless(/#FILE/){
+	
+		my @line = split(/\t/,$line, -1);
+		
+		my $sample = $line[0];
+		my $gene = $line[4];
+		my $perc_id = $line[8];
+		
+		# remove file extension
+		$sample =~ s/\.fsa$||\.fasta$||\.fa$||\.gff$||\.gbk$//g;
+		$sample =~ s/#//g;
+		$sample = basename($sample);
+		
+		# store for tables
+		$g_list{$gene}{$sample} = $perc_id;
+		$s_list{$sample} = 1;
+	}
+}close TABLE;
+
+# open output file
+open OUT, ">$output" or die $!;
+ 
+# sample list
+my @sample_list = sort keys %s_list; 
+my @gene_list = sort keys %g_list;
+
+# headers
+print OUT "Sample\t".join("\t", @gene_list)."\n";
+
+# create gene table 
+for my $s (@sample_list){
+	
+	my @outline  = ("$s");
+	
+	for my $g ( @gene_list ){
+		if ( $g_list{$g}{$s} ){
+			push(@outline, $g_list{$g}{$s});
+		}else{
+			push(@outline, "0");
+		}
+	}
+	
+	# print 
+	print OUT join("\t", @outline)."\n";
+}
+
+
+exit
