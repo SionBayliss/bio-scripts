@@ -15,13 +15,13 @@ use File::Basename;
 	
  Input variants:
  --pres 	input variant presence absence file [optional]
- --vcf	input vcf file [optional]
+ --vcf		input vcf file [optional]
  --kmers	input kmer file [optional]
  [required: one of the above]
  
  Phenotype/Similarities:
- --sim	similarity matrix [required]
- --phen	phenotype table [required] 
+ --sim		similarity matrix [required]
+ --phen		phenotype table [required] 
  
  Output:
  --output 	output directory [required] 
@@ -29,10 +29,11 @@ use File::Basename;
  		outputs [optional] 
   
  Usage:
+ --print-samples	print samples to pyseer output files
  --r-lmm	reuse lmm file, only use if metadata and variants
  		match exactly [default: off] 
  --no-qq	switch off qqplot [default: on if --scripts]
- --cpus	number of cpus to use for analysis [default: 1]
+ --cpus		number of cpus to use for analysis [default: 1]
  -q|--quiet	switch off verbose [not implemented]
  -h|--help 	usage information
   
@@ -47,6 +48,8 @@ my $sim = '';
 my $phenotype = '';
 my $output_dir = '';
 my $pyseer_scripts = '';
+
+my $print_samples = 0;
 
 my $rlmm = 0;
 my $no_qq = 0;
@@ -65,6 +68,8 @@ GetOptions(
 	'phenotype=s' => \$phenotype,
 	'output=s' => \$output_dir,
 	'scripts=s' => \$pyseer_scripts,
+	
+	'print-samples' => \$print_samples,
 
 	'r-lmm'	=> \$rlmm,
 	'no-qq'	=> \$no_qq,
@@ -215,12 +220,13 @@ for my $i (0..$#phenotypes){
 				push(@args, "--load-lmm $lmm_file.npz");	
 			}
 		}
+		push(@args, "--print-samples") if $print_samples == 1;
 		
 		# make argument line
 		my $args_in = join(" ", @args);
 	
 		# command line
-		my $command = "pyseer $com $file --phenotypes $phenotype --phenotype-column $p --lmm --print-samples --output-patterns $p_out/$f.patterns.txt --cpu $cpus $args_in > $p_out/$f.results.tsv 2>>$p_out/$f.seer_log.txt";
+		my $command = "pyseer $com $file --phenotypes $phenotype --phenotype-column $p --lmm --output-patterns $p_out/$f.patterns.txt --cpu $cpus $args_in > $p_out/$f.results.tsv 2>>$p_out/$f.seer_log.txt";
 		`echo $command > $p_out/$f.seer_log.txt`; 
 		
 		# run pyseer
