@@ -52,7 +52,7 @@ my @phens = split(/,/, $pheno);
 # set results directory
 my $r = "";
 $r = "results" if $results eq ""; 
-$r = $results if $results eq ""; 
+$r = $results if $results ne ""; 
 
 # open output
 open OUT, ">$output" or die " - ERROR: could not open output file\n"; 
