@@ -1,0 +1,104 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+use Getopt::Long;
+use Pod::Usage;
+
+# aggregate pyseer hits into one file
+
+=head1
+
+
+aggregate_pyseer
+
+TO DO
+
+=cut
+
+# command line options
+my $input = '';
+my $no = ''; 
+my $pheno = '';
+my $output = '';
+my $results = '';
+
+my $help = 0;
+
+GetOptions(
+
+	'help|?' 	=> \$help,
+	
+	'input=s' 	=> \$input,
+	'phen=s' 	=> \$pheno,
+	'number=s'	=> \$no,
+	'results=s'	=> \$results,
+	'output=s' => \$output,
+			
+) or pod2usage(1);
+pod2usage(1) if $help;
+
+pod2usage( {-message => q{pyseer output directory is required}, -exitval => 1, -verbose => 1 } ) if $input eq ''; 
+pod2usage( {-message => q{comma seperated list of phenotypes test is required}, -exitval => 1, -verbose => 1 } ) if $pheno eq ''; 
+pod2usage( {-message => q{output file is required}, -exitval => 1, -verbose => 1 } ) if $output eq ''; 
+pod2usage( {-message => q{comma seperated list of analysis numbers is required}, -exitval => 1, -verbose => 1 } ) if $no eq '';
+
+# store analysis numbers
+my @nos = split(/,/, $no);
+
+# store phenotypes
+my @phens = split(/,/, $pheno);
+
+# set results directory
+my @results = ();
+@results = ("results") x scalar(@phens) if $results eq ""; 
+@results = split( /,/ , $results ) if $results ne ""; 
+
+# open output
+
+
+# print headers
+my @headers = ("variant af", "phenotype", "test_number", "filter-pvalue", "lrt-pvalue", "beta", "beta-std-err", "variant_h2", "notes");
+print join("\t", @headers), "\n";
+
+# loop through all files for all phenotypes and analysis numbers
+for my $i ( 0..$#phens ){
+
+	my $p = $phens[$i];
+	my $r = $results[$i];
+	
+	for my $n ( @nos ){
+		
+		my $file = sprintf("%s/%s/%s/%s.sig_hits.tsv", $output, $r, $p, $n) ;
+		
+		# parse file
+		if ( -f $file ){
+			
+			open IN, $file or die " - ERROR: could not open $file\n";
+			while (<IN>){
+				
+				my $line = $_;
+				chomp $line;
+				
+				my @vars = split(/\t/, $line);
+				
+				# exclude headers
+				unless(/^varinant\t/){
+					
+					# make output line
+					my @outvars = ( $vars[0], $p, $n, $vars[1], $vars[2], $vars[3], $vars[4], $vars[5], $vars[6], $vars[9]);
+					my $outline = join( "\t" , @outvars );
+					
+					print "$outline\n";
+										
+				}
+				 
+			}close IN;
+		
+		}else{
+			print " - WARNING: $file not found\n";
+		}
+			
+	}	
+}
+
