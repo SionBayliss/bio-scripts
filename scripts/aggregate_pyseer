@@ -55,11 +55,11 @@ my @results = ();
 @results = split( /,/ , $results ) if $results ne ""; 
 
 # open output
-
+open OUT, ">$output" or die " - ERROR: could not open output file\n"; 
 
 # print headers
 my @headers = ("variant af", "phenotype", "test_number", "filter-pvalue", "lrt-pvalue", "beta", "beta-std-err", "variant_h2", "notes");
-print join("\t", @headers), "\n";
+print OUT join("\t", @headers), "\n";
 
 # loop through all files for all phenotypes and analysis numbers
 for my $i ( 0..$#phens ){
@@ -69,7 +69,7 @@ for my $i ( 0..$#phens ){
 	
 	for my $n ( @nos ){
 		
-		my $file = sprintf("%s/%s/%s/%s.sig_hits.tsv", $output, $r, $p, $n) ;
+		my $file = sprintf("%s/%s/%s/%s.sig_hits.tsv", $input, $r, $p, $n) ;
 		
 		# parse file
 		if ( -f $file ){
@@ -80,16 +80,16 @@ for my $i ( 0..$#phens ){
 				my $line = $_;
 				chomp $line;
 				
-				my @vars = split(/\t/, $line);
+				my @vars = split(/\t/, $line, -1);
 				
 				# exclude headers
-				unless(/^varinant\t/){
+				unless(/^variant\t/){
 					
 					# make output line
 					my @outvars = ( $vars[0], $p, $n, $vars[1], $vars[2], $vars[3], $vars[4], $vars[5], $vars[6], $vars[9]);
 					my $outline = join( "\t" , @outvars );
 					
-					print "$outline\n";
+					print OUT "$outline\n";
 										
 				}
 				 
