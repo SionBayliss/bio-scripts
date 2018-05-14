@@ -85,7 +85,12 @@ for my $i ( 0..$#phens ){
 				unless(/^variant\t/){
 					
 					# make output line
-					my @outvars = ( $vars[0], $p, $n, $vars[1], $vars[2], $vars[3], $vars[4], $vars[5], $vars[6], $vars[9]);
+					my @outvars  = ();
+					if ( scalar(@vars>8) ){
+						@outvars = ( $vars[0], $p, $n, $vars[1], $vars[2], $vars[3], $vars[4], $vars[5], $vars[6], $vars[9]);
+					}else{
+						@outvars = ( $vars[0], $p, $n, $vars[1], $vars[2], $vars[3], $vars[4], $vars[5], $vars[6], $vars[7]);
+					}
 					my $outline = join( "\t" , @outvars );
 					
 					print OUT "$outline\n";
