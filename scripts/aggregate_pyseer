@@ -50,9 +50,9 @@ my @nos = split(/,/, $no);
 my @phens = split(/,/, $pheno);
 
 # set results directory
-my @results = ();
-@results = ("results") x scalar(@phens) if $results eq ""; 
-@results = split( /,/ , $results ) if $results ne ""; 
+my $r = "";
+$r = "results" if $results eq ""; 
+$r = $results if $results eq ""; 
 
 # open output
 open OUT, ">$output" or die " - ERROR: could not open output file\n"; 
@@ -65,7 +65,6 @@ print OUT join("\t", @headers), "\n";
 for my $i ( 0..$#phens ){
 
 	my $p = $phens[$i];
-	my $r = $results[$i];
 	
 	for my $n ( @nos ){
 		
