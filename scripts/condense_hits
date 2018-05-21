@@ -1,0 +1,145 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+use Getopt::Long;
+use Pod::Usage;
+
+# select the top hit/allele for a feature - input is output from annotate_pyseer
+
+=head1  SYNOPSIS
+
+ annotate_pyseer
+ 
+ Input/Output:
+ -i|--input		input list [required]
+ -c|--column		comma seperated list of columns headers on which to filter [required]
+ -o|--output		output file [required]	
+ 
+ Options
+ -s|--sort-col	column on which to sort [default]
+ -a|--ascend	sort ascending [default: descending]
+ 
+ General:
+ -h|--help		usage information
+ 
+=cut
+
+# command line options
+my $input = '';
+my $output = '';
+my $cols = '';
+my $sort = "lrt-pvalue";
+my $ascend = 0; 
+
+my $help = 0;
+
+GetOptions(
+
+	'help|?' 	=> \$help,
+	
+	'input=s' 	=> \$input,
+	'output=s'	=> \$output,
+	'columns=s' => \$cols,
+	'sort-col=s' => \$sort,
+	'ascend' => \$ascend,
+	
+	
+) or pod2usage(1);
+pod2usage(1) if $help;
+pod2usage( {-message => q{ - ERROR: input list is a required arguement}, -exitval => 1, -verbose => 1 } ) if $input eq ''; 
+pod2usage( {-message => q{ - ERROR: column number is required}, -exitval => 1, -verbose => 1 } ) if $cols eq ''; 
+pod2usage( {-message => q{ - ERROR: output file is a required arguement}, -exitval => 1, -verbose => 1 } ) if $output eq ''; 
+
+# col indexes
+my %col_idx = (); 
+$col_idx{$_}++ for (split(/,/, $cols));  
+my @idx_array = ();
+push(@idx_array, ($_-1)) for keys(%col_idx);
+
+# parse input hits - find lowest p per unique colname 
+my %hits = ();
+my %line_no = ();
+my $idx = "";
+my $lcount = 0;
+
+open IN, $input or die " - ERROR: could not open $input\n";
+while (<IN>){
+
+	my $line = $_;
+	chomp $line;
+	
+	my @vars = split(/\t/, $line, -1);
+	
+	++$lcount;
+	
+	# find column index for p-value
+	if( (/^variant/) || (/^metadata/) ){
+		
+		# find sort column header
+		my @print_headers = ();
+		for my $i (0..$#vars){
+			$idx = $i if ( $vars[$i] eq $sort );
+			push (@print_headers, $vars[$i]) if $col_idx{$i+1};
+		}
+		
+		# sanity checks
+		die " - ERROR: no header named $sort in file\n" if ($idx eq "");
+		die " - ERROR: --sort-col is the same as the query column\n" if( $col_idx{$idx+1} );
+		
+		# feedback
+		print sprintf ( " - filtering on %s.\n", join(", ", @print_headers) ); 
+				
+	}else{
+	
+		# sanity checks
+		die " - ERROR: no header named $sort in file\n" if ($idx eq "");
+		
+		# variables
+		my $val = join("-", sort(@vars[@idx_array])); ;
+		my $p = $vars[$idx]; 
+		
+		# store lowest value
+		if ( !$hits{$val} ){
+			$hits{$val} = $p;
+			$line_no{$val} = $lcount;
+		}
+		elsif ( ($ascend == 1) && ($p > $hits{$val}) ){
+			$hits{$val} = $p;
+			$line_no{$val} = $lcount;
+		}elsif ( ($p < $hits{$val}) ){
+			$hits{$val} = $p;
+			$line_no{$val} = $lcount;
+		}
+	}
+	
+}close IN;
+
+# lines to include
+my @lines = values %line_no;
+my %inc;
+$inc{$_}++ for (@lines);
+
+# open output
+open OUT, ">$output" or die " - ERROR: could not open output file.\n";
+
+# filter file.
+$lcount = 0;
+open IN, $input or die " - ERROR: could not open $input\n";
+while (<IN>){
+
+	my $line = $_;
+	
+	++$lcount;
+	
+	# find column index for p-value
+	if( (/^variant/) || (/^metadata/) ){
+		print OUT $line;	
+	}elsif( $inc{$lcount} ){
+		print OUT $line;	
+	}
+	
+}close IN;
+
+# feedback
+print sprintf(" - %s entries filtered.\n - %s/%s entries included in output file.\n", ($lcount-1) - scalar(@lines), scalar(@lines), $lcount-1 );

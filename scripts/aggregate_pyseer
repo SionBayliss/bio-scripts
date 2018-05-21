@@ -58,7 +58,7 @@ $r = $results if $results ne "";
 open OUT, ">$output" or die " - ERROR: could not open output file\n"; 
 
 # print headers
-my @headers = ("variant af", "phenotype", "test_number", "filter-pvalue", "lrt-pvalue", "beta", "beta-std-err", "variant_h2", "notes");
+my @headers = ("variant af", "phenotype", "test_number", "af", "filter-pvalue", "lrt-pvalue", "beta", "beta-std-err", "variant_h2", "notes");
 print OUT join("\t", @headers), "\n";
 
 # loop through all files for all phenotypes and analysis numbers

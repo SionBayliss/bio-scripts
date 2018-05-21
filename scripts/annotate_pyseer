@@ -1,0 +1,140 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+use Getopt::Long;
+use Pod::Usage;
+
+# annotate pyseer output with annotation from PIRATE.
+
+=head1  SYNOPSIS
+
+ annotate_pyseer
+ 
+ Input/Output:
+ -i|--input		input list [required]
+ -p|--pirate		output file from PIRATE [required]
+ -o|--output		output file [required]	
+
+ Options:
+ --columns		columns to print from PIRATE
+ 
+ General:
+ -h|--help		usage information
+ 
+=cut
+
+# command line options
+my $input = '';
+my $pirate = '';
+my $output = '';
+my $cols = '1,2,3,4,5,6';
+
+my $help = 0;
+
+GetOptions(
+
+	'help|?' 	=> \$help,
+	
+	'input=s' 	=> \$input,
+	'pirate=s' 	=> \$pirate,
+	'output=s'	=> \$output,
+	'columns=s' => \$cols,
+	
+) or pod2usage(1);
+pod2usage(1) if $help;
+pod2usage( {-message => q{ - ERROR: input list is a required arguement}, -exitval => 1, -verbose => 1 } ) if $input eq ''; 
+pod2usage( {-message => q{ - ERROR: input PIRATE file is a required arguement}, -exitval => 1, -verbose => 1 } ) if $pirate eq ''; 
+pod2usage( {-message => q{ - ERROR: output file is a required arguement}, -exitval => 1, -verbose => 1 } ) if $output eq ''; 
+
+# make column array
+my @columns = split(/,/, $cols);
+
+# parse input hits
+my %alleles = ();
+open LIST, $input or die " - ERROR: could not open $input\n";
+while (<LIST>){
+
+	my $line = $_;
+	chomp $line;
+	
+	my @vars = split(/\t/, $line, -1);
+	
+	# store
+	unless(/variant/){
+		$alleles{$vars[0]} = 1;
+	}
+	
+}close LIST;
+
+# parse PIRATE file and store annotation
+my $count = 0;
+my %store = ();
+my $headers = ();
+
+open PAN, $pirate or die " - ERROR: could not open $pirate\n";
+while (<PAN>){
+
+	my $line = $_;
+	chomp $line;
+	
+	my @vars = split(/\t/, $line);
+	
+	my $a = $vars[0];
+	
+	# store headers
+	if(/allele_name/){
+		
+		$headers = join("\t", @vars[@columns]);
+		
+	}else{
+		
+		if ($alleles{$a}){
+		
+			# store relevant info
+			my $store_line = join( "\t", @vars[@columns] ); 
+			$store{$a} = $store_line;
+												
+			# increment count
+			++$count;
+		}
+	}
+	
+}close PAN;
+
+# parse input and print additional info from PIRATE
+
+# open output file
+open OUT, ">$output" or die $!;
+
+open LIST, $input or die " - ERROR: could not open $input\n";
+while (<LIST>){
+
+	my $line = $_;
+	chomp $line;
+	
+	my @vars = split(/\t/, $line, -1);
+	
+	# prepare headers
+	my $outline = "";
+	if(/variant/){
+		$outline = sprintf( "%s\t%s\t%s\n" , $vars[0], $headers, join("\t", @vars[1..$#vars]));
+	}
+	# prepare info line
+	else{
+		
+		if( !$store{$vars[0]} ){
+			print " - WARNING: no info found for allele $a\n";
+		}else{
+			$outline = sprintf( "%s\t%s\t%s\n" , $vars[0], $store{$vars[0]}, join("\t", @vars[1..$#vars]) );
+		}
+	}
+	
+	# print
+	print OUT $outline;
+	
+}close LIST;
+
+# feedback
+my $no_alleles = keys %alleles;
+print " - $count/$no_alleles alleles printed to output file.\n";

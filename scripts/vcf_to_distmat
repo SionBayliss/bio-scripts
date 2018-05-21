@@ -1,0 +1,209 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+use Getopt::Long qw(GetOptions);
+use Pod::Usage;
+
+# convert vcf file to distance/similarity matrix.
+
+=head1  SYNOPSIS
+
+ vcf_to_distmat -i /path/to/vcf_file -o /path/to/output_file
+
+ Input/Output:
+ -i|--input		input PIRATE.*.tsv file [required]
+ -o|--output		output treeWAS input file [required]
+ 
+ Filtering options:
+ --fl|freq-low		min snp frequency to include in output 
+			[default: 0.00]
+ --fh|freq-high		max snp frequency to include in output 
+			[default: 1.00]
+ --n-sites		include n-sites [default: exclude]
+			
+ Output options:
+ --phylip		output file in phylip format [default: off]
+ --similarity		similarity matrix [default: difference]
+			
+ General:
+ -h|--help		usage information
+ 
+=cut
+
+# variables
+my $vcf = "";
+my $output = "";
+
+my $l_threshold = 0.00;
+my $h_threshold = 1;
+my $ns = 0;
+
+my $phylip = 0;
+my $sim = 0;
+
+my $help = 0; 
+
+GetOptions(
+
+	'help|?' 	=> \$help,
+	
+	'input=s' 	=> \$vcf,
+	'output=s'	=> \$output,
+	
+	'fh|freq-low=f' => \$l_threshold,
+	'fl|freq-low=f' => \$h_threshold,
+	'ns' => \$ns,
+	
+	'similarity' => \$sim,
+	'phylip' => \$phylip,
+	
+) or pod2usage(1);
+pod2usage(1) if $help;
+pod2usage( {-message => q{input pirate file is a required arguement}, -exitval => 1, -verbose => 1 } ) if $vcf eq ''; 
+pod2usage( {-message => q{output file is a required arguement}, -exitval => 1, -verbose => 1 } ) if $output eq ''; 
+
+# parse vcf file.
+my $no_sites = 0;
+my $no_var_sites = 0;
+my $n_vars = 0; 
+
+my @headers = ();
+my $no_samples = 0;
+
+my %out_hash = ();
+
+open VCF, $vcf or die "VCF file did not open.\n";
+while(<VCF>){
+	
+	my $l = $_;
+	chomp $l;
+	
+	my @line = split(/\t/, $l, -1);
+	
+	# store headers
+	if(/^#CHROM\tPOS/){	
+		@headers = @line;
+		$no_samples = scalar(@headers)-9;
+	}
+	elsif(/^#/){
+		# ignore headers
+	}elsif(/^\S+\t/){
+	
+		$no_sites++;	
+		
+		# sanity check
+		die " - ERROR: No samples found in header line.\n" if $no_samples == 0;
+		
+		# variables
+		my $pos = $line[1];
+		my $ref = lc($line[3]);
+		my $alt = lc($line[4]);
+		
+		# loop through all alleles (inc ref as allele)
+		my @alleles = ( $ref , split(/,/, $alt ) ) ;
+		
+		for my $a_idx (0..$#alleles) {
+		
+			# is ref or alt an N
+			my $is_n = 0;
+			$is_n = 1 if ( ($ref eq "*") || ($alt eq "*") || ($ref eq "n") || ($alt eq "n") || ($ref eq "-") || ($alt eq "-") );
+			++$n_vars if $is_n;
+		
+			# filter out ns [include: optional]
+			if( ($ns == 1) || ( ($ns == 0) && ($is_n == 0) ) ){
+		
+				# store numeric index for all samples
+				my @pres = ();
+				my @absent = ();
+				for my $t ( 9..$#headers ){ 
+			
+					my $v = $line[$t];
+				
+					if ($v == $a_idx){
+						push(@pres, $t); 
+					}else{
+						push(@absent, $t); 
+					} 
+				}
+		
+				# frequency of variants in samples
+				my $no_var = scalar(@pres);
+				my $freq = $no_var/$no_samples;
+		
+				# store variant if between frequency thresholds
+				if ( ( $freq <= $h_threshold ) && ( $freq >= $l_threshold ) ){
+			
+					# store pairwise distance(similarity/difference)
+					for my $i1 (@pres){
+										
+						# similarity
+						if ( $sim == 1 ){
+							for my $i2 (@pres){
+						
+								my @in_vals = sort {$a<=>$b} ($i1, $i2); #sort entries
+							
+								$out_hash{$in_vals[0]}{$in_vals[1]}++;
+							}	
+						}
+				
+						# difference
+						else{
+							for my $i2 (@absent){
+						
+								my @in_vals = sort {$a<=>$b} ($i1, $i2); #sort entries
+							
+								$out_hash{$in_vals[0]}{$in_vals[1]}++;
+							}					
+						}
+					}
+			
+					# increment stored sites 
+					++$no_var_sites;
+				}
+		
+			}
+		
+		}
+	
+	}
+	
+	#last if ($no_sites == 1000);	
+		
+}close VCF;
+
+# feedback
+print " - $no_var_sites/$no_sites variant sites used to create distance matrix.\n - $n_vars n-variants\n - printing distance matrix...\n";
+
+# open output file
+open OUTPUT, ">$output" or die " - ERROR: could not open output file\n";
+
+# print headers 
+if( $phylip == 1 ){
+	print OUTPUT $no_samples, "\n";
+}else{
+	print OUTPUT sprintf( "%s\t%s\n", "id" , join("\t", @headers[9..$#headers] ) );
+}
+
+# print distmat
+for my $o1 (9..$#headers){
+
+	# make output line
+	my $s1 = $headers[$o1];
+	my @outline = ($s1);
+	
+	for my $o2 (9..$#headers){
+		
+		if( $out_hash{$o1}{$o2} ){
+			push(@outline, $out_hash{$o1}{$o2});
+		}elsif( $out_hash{$o2}{$o1} ){
+			push(@outline, $out_hash{$o2}{$o1});
+		}else{
+			push(@outline, "0");
+		}
+	}
+
+	# print to file
+	print OUTPUT join("\t", @outline), "\n";
+
+}close OUTPUT;
