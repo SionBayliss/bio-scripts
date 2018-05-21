@@ -1,0 +1,175 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+use Getopt::Long qw(GetOptions);
+use Pod::Usage;
+
+# convert a multi site vcf to a normalised vcf and retain all sites.
+
+=head1  SYNOPSIS
+
+
+ expand_vcf -i /path/to/vcf_file -o /path/to/output_file
+
+ Input/Output:
+ -i|--input		input PIRATE.*.tsv file [required]
+ -o|--output		output treeWAS input file [required]
+ 
+ Filtering options:
+ --fl|freq-low		min snp frequency to include in output 
+			[default: 0.00]
+ --fh|freq-high		max snp frequency to include in output 
+			[default: 1.00]
+ --n-sites		include n-sites [default: exclude]
+			
+ General:
+ -h|--help		usage information
+ 
+=cut
+
+# swicth buffer off 
+ $| = 1;
+
+# variables
+my $vcf = "";
+my $output = "";
+
+my $l_threshold = 0.00;
+my $h_threshold = 1;
+my $ns = 0;
+
+my $help = 0; 
+
+GetOptions(
+
+	'help|?' 	=> \$help,
+	
+	'input=s' 	=> \$vcf,
+	'output=s'	=> \$output,
+	
+	'fl|freq-low=f' => \$l_threshold,
+	'fh|freq-high=f' => \$h_threshold,
+	'ns' => \$ns,
+	
+) or pod2usage(1);
+pod2usage(1) if $help;
+pod2usage( {-message => q{input pirate file is a required arguement}, -exitval => 1, -verbose => 1 } ) if $vcf eq ''; 
+pod2usage( {-message => q{output file is a required arguement}, -exitval => 1, -verbose => 1 } ) if $output eq ''; 
+
+# parse vcf file.
+my $no_sites = 0;
+my $no_variants = 0;
+my $no_stored_vars = 0;
+my $n_vars = 0; 
+
+my @headers = ();
+my $no_samples = 0;
+
+# open output file
+open OUTPUT, ">$output" or die " - ERROR: could not open output file\n";
+
+# feedback
+print " - 0 variant sites processed.";
+
+open VCF, $vcf or die "VCF file did not open.\n";
+while(<VCF>){
+	
+	my $l = $_;
+	chomp $l;
+	
+	my @line = split(/\t/, $l, -1);
+	
+	# store headers
+	if(/^#CHROM\tPOS/){	
+		@headers = @line;
+		$no_samples = scalar(@headers)-9;
+		print OUTPUT "$l\n";
+	}
+	elsif(/^#/){
+		# ignore headers
+	}elsif(/^\S+\t/){
+	
+		$no_sites++;	
+		
+		# sanity check
+		die " - ERROR: No samples found in header line.\n" if $no_samples == 0;
+		
+		# variables
+		my $pos = $line[1];
+		my $ref = uc($line[3]);
+		my $alt = uc($line[4]);
+				
+		# replace alternative gap characters with n
+		$alt =~ s/\*|\-/N/g;
+		$ref =~ s/\*|\-/N/g;
+		
+		# store all alleles (inc ref as allele)
+		my @alleles = ( $ref , split(/,/, $alt ) );
+		
+		# find number Ns 
+		my $n_Ns = 0;
+		for (@alleles) { ++$n_Ns if $_ eq "N" };
+		$n_vars += $n_Ns;
+		
+		# find number of alleles excluding Ns [optionally include with --n]
+		my $no_alleles = @alleles;
+		$no_variants += $no_alleles;
+		$no_alleles = $no_alleles - $n_Ns if $ns == 0;
+		
+		# process if there is > 1 allele 
+		if ( $no_alleles > 1 ){
+		
+			for my $a_idx (0..$#alleles) {
+		
+				my $a_char = $alleles[$a_idx];
+				
+				# exclude ns [optionally include with --n ]
+				if( ($ns == 1) || ( ($ns == 0) && ($a_char ne "N") ) ){
+		
+					# print a single line for each variant
+					my @outline = ( @line[0..3], $a_char, @line[5..8] );	
+					my $s_count = 0; 				
+					for my $t ( 9..$#headers ){ 
+			
+						my $v = $line[$t];
+				
+						if ($v == $a_idx){
+							push(@outline, "1"); 
+							++$s_count;
+						}else{
+							push(@outline, "0"); 
+						} 
+					}
+		
+					# frequency of variants in samples
+					my $freq = $s_count/$no_samples;
+		
+					# store variant if between frequency thresholds
+					if ( ( $freq <= $h_threshold ) && ( $freq >= $l_threshold ) ){
+					
+						my $output_line = join("\t", @outline);
+						print OUTPUT "$output_line\n";
+						
+						++$no_stored_vars;
+						
+					}
+				}
+			}
+		}
+		
+		# feedback
+		if ( $no_sites%1000 == 0 ){
+			print "\r - $no_sites variant sites processed.";
+		}
+	}
+	
+	# test line
+	#last if ($no_sites == 1000);	
+			
+}close VCF;
+close OUTPUT;
+
+# feedback
+print "\r - $no_sites variant sites processed.\n";
+print " - $no_sites sites contained $no_variants variants of which $n_vars were Ns.\n - $no_stored_vars/$no_variants variants were printed to output file [freq: $l_threshold-$h_threshold].\n";
