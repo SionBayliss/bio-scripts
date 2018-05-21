@@ -32,6 +32,9 @@ use Pod::Usage;
  
 =cut
 
+# swicth buffer off 
+ $| = 1;
+
 # variables
 my $vcf = "";
 my $output = "";
@@ -74,6 +77,9 @@ my @headers = ();
 my $no_samples = 0;
 
 my %out_hash = ();
+
+# feedback
+print " - 0 variant sites processed.";
 
 open VCF, $vcf or die "VCF file did not open.\n";
 while(<VCF>){
@@ -122,6 +128,7 @@ while(<VCF>){
 		# process if there is > 1 allele 
 		if ( $no_alleles > 1 ){
 		
+			my %diff_count = ();
 			for my $a_idx (0..$#alleles) {
 		
 				my $a_char = $alleles[$a_idx];
@@ -158,7 +165,8 @@ while(<VCF>){
 								for my $i2 (@pres){
 						
 									my @in_vals = sort {$a<=>$b} ($i1, $i2); #sort entries
-							
+									
+									# store similarities
 									$out_hash{$in_vals[0]}{$in_vals[1]}++;
 								}	
 							}
@@ -168,8 +176,11 @@ while(<VCF>){
 								for my $i2 (@absent){
 						
 									my @in_vals = sort {$a<=>$b} ($i1, $i2); #sort entries
-							
-									$out_hash{$in_vals[0]}{$in_vals[1]}++;
+									
+									# store differences for site
+									if ( ($alleles[$line[$i2]] ne "n") || ( $ns == 1 ) ){ 
+										$diff_count {$in_vals[0]}{$in_vals[1]} = 1;
+									} 
 								}					
 							}
 						}
@@ -181,16 +192,31 @@ while(<VCF>){
 				}
 		
 			}
+			
+			# store differences
+			if ( $sim == 0 ){
+				for my $i1 (keys %diff_count ){
+					for my $i2 ( keys %{$diff_count{$i1}} ){ 
+						$out_hash{ $i1 }{ $i2 }++;
+					}
+				}
+			}	
+		}
+		
+		# feedback
+		if ( $no_sites%1000 == 0 ){
+			print "\r - $no_sites variant sites processed.";
 		}
 	
 	}
 	
 	# test line
-	#last if ($no_sites > 1000);	
+	#last if ($no_sites == 1000);	
 		
 }close VCF;
 
 # feedback
+print "\r - $no_sites variant sites processed.\n";
 print " - $no_sites sites contained $no_variants variants of which $n_vars were Ns.\n - $no_stored_sites/$no_variants variants were used to create distance matrix [freq: $l_threshold-$h_threshold].\n - printing distance matrix...\n";
 
 # open output file
