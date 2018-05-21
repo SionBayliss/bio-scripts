@@ -9,7 +9,8 @@ use Pod::Usage;
 
 =head1  SYNOPSIS
 
- vcf_to_distmat -i /path/to/vcf_file -o /path/to/output_file
+
+ norm_vcf_to_distmat -i /path/to/vcf_file -o /path/to/output_file
 
  Input/Output:
  -i|--input		input PIRATE.*.tsv file [required]
@@ -51,8 +52,8 @@ GetOptions(
 	'input=s' 	=> \$vcf,
 	'output=s'	=> \$output,
 	
-	'fh|freq-low=f' => \$l_threshold,
-	'fl|freq-low=f' => \$h_threshold,
+	'fl|freq-low=f' => \$l_threshold,
+	'fh|freq-high=f' => \$h_threshold,
 	'ns' => \$ns,
 	
 	'similarity' => \$sim,
@@ -65,7 +66,8 @@ pod2usage( {-message => q{output file is a required arguement}, -exitval => 1, -
 
 # parse vcf file.
 my $no_sites = 0;
-my $no_var_sites = 0;
+my $no_variants = 0;
+my $no_stored_sites = 0;
 my $n_vars = 0; 
 
 my @headers = ();
@@ -100,80 +102,96 @@ while(<VCF>){
 		my $ref = lc($line[3]);
 		my $alt = lc($line[4]);
 		
-		# loop through all alleles (inc ref as allele)
+		# replace alternative gap characters with n
+		$alt =~ s/\*|\-/n/g;
+		$ref =~ s/\*|\-/n/g;
+		
+		# store all alleles (inc ref as allele)
 		my @alleles = ( $ref , split(/,/, $alt ) ) ;
 		
-		for my $a_idx (0..$#alleles) {
+		# find number Ns 
+		my $n_Ns = 0;
+		for (@alleles) { ++$n_Ns if $_ eq "n" };
+		$n_vars += $n_Ns;		
 		
-			# is ref or alt an N
-			my $is_n = 0;
-			$is_n = 1 if ( ($ref eq "*") || ($alt eq "*") || ($ref eq "n") || ($alt eq "n") || ($ref eq "-") || ($alt eq "-") );
-			++$n_vars if $is_n;
-		
-			# filter out ns [include: optional]
-			if( ($ns == 1) || ( ($ns == 0) && ($is_n == 0) ) ){
-		
-				# store numeric index for all samples
-				my @pres = ();
-				my @absent = ();
-				for my $t ( 9..$#headers ){ 
-			
-					my $v = $line[$t];
+		# find number of alleles excluding Ns [optionally include with --n]
+		my $no_alleles = @alleles;
+		$no_variants += $no_alleles;
+		$no_alleles = $no_alleles - $n_Ns if $ns == 0;
 				
-					if ($v == $a_idx){
-						push(@pres, $t); 
-					}else{
-						push(@absent, $t); 
-					} 
-				}
+		# process if there is > 1 allele 
+		if ( $no_alleles > 1 ){
 		
-				# frequency of variants in samples
-				my $no_var = scalar(@pres);
-				my $freq = $no_var/$no_samples;
+			for my $a_idx (0..$#alleles) {
 		
-				# store variant if between frequency thresholds
-				if ( ( $freq <= $h_threshold ) && ( $freq >= $l_threshold ) ){
-			
-					# store pairwise distance(similarity/difference)
-					for my $i1 (@pres){
-										
-						# similarity
-						if ( $sim == 1 ){
-							for my $i2 (@pres){
-						
-								my @in_vals = sort {$a<=>$b} ($i1, $i2); #sort entries
-							
-								$out_hash{$in_vals[0]}{$in_vals[1]}++;
-							}	
-						}
+				my $a_char = $alleles[$a_idx];
 				
-						# difference
-						else{
-							for my $i2 (@absent){
-						
-								my @in_vals = sort {$a<=>$b} ($i1, $i2); #sort entries
-							
-								$out_hash{$in_vals[0]}{$in_vals[1]}++;
-							}					
-						}
+				# exclude ns [optionally include with --n ]
+				if( ($ns == 1) || ( ($ns == 0) && ($a_char ne "n") ) ){
+		
+					# store numeric index for all samples
+					my @pres = ();
+					my @absent = ();
+					for my $t ( 9..$#headers ){ 
+			
+						my $v = $line[$t];
+				
+						if ($v == $a_idx){
+							push(@pres, $t); 
+						}else{
+							push(@absent, $t); 
+						} 
 					}
+		
+					# frequency of variants in samples
+					my $no_var = scalar(@pres);
+					my $freq = $no_var/$no_samples;
+		
+					# store variant if between frequency thresholds
+					if ( ( $freq <= $h_threshold ) && ( $freq >= $l_threshold ) ){
 			
-					# increment stored sites 
-					++$no_var_sites;
+						# store pairwise distance(similarity/difference)
+						for my $i1 (@pres){
+										
+							# similarity
+							if ( $sim == 1 ){
+								for my $i2 (@pres){
+						
+									my @in_vals = sort {$a<=>$b} ($i1, $i2); #sort entries
+							
+									$out_hash{$in_vals[0]}{$in_vals[1]}++;
+								}	
+							}
+				
+							# difference
+							else{
+								for my $i2 (@absent){
+						
+									my @in_vals = sort {$a<=>$b} ($i1, $i2); #sort entries
+							
+									$out_hash{$in_vals[0]}{$in_vals[1]}++;
+								}					
+							}
+						}
+			
+						# increment stored sites 
+						++$no_stored_sites;
+					}
+		
 				}
 		
 			}
-		
 		}
 	
 	}
 	
-	#last if ($no_sites == 1000);	
+	# test line
+	#last if ($no_sites > 1000);	
 		
 }close VCF;
 
 # feedback
-print " - $no_var_sites/$no_sites variant sites used to create distance matrix.\n - $n_vars n-variants\n - printing distance matrix...\n";
+print " - $no_sites sites contained $no_variants variants of which $n_vars were Ns.\n - $no_stored_sites/$no_variants variants were used to create distance matrix [freq: $l_threshold-$h_threshold].\n - printing distance matrix...\n";
 
 # open output file
 open OUTPUT, ">$output" or die " - ERROR: could not open output file\n";
