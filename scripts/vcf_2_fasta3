@@ -86,6 +86,12 @@ while(<VCF>){
 	if(/^#CHROM\tPOS/){	
 		@headers = @line;
 		$no_samples = scalar(@headers)-9;
+		
+		# initialise storage
+		for my $t ( 9..$#headers ){ 
+			my $ar_idx = $t-9;				
+			$storage_var[$ar_idx] = "";
+		}
 		#print OUTPUT "$l\n";
 	}
 	elsif(/^#/){
@@ -170,9 +176,11 @@ while(<VCF>){
 				my $ar_idx  = $t-9;
 				
 				if( $inc{$t} ){
-					push(@{$storage_var[$ar_idx]}, $inc{$t});
+					$storage_var[$ar_idx] = join("", $storage_var[$ar_idx], $inc{$t});
+					#push(@{$storage_var[$ar_idx]}, $inc{$t});
 				}else{
-					push(@{$storage_var[$ar_idx]}, "N");
+					$storage_var[$ar_idx] = join("", $storage_var[$ar_idx], "N");
+					#push(@{$storage_var[$ar_idx]}, "N");
 				}
 			
 			}
@@ -205,7 +213,7 @@ for my $t ( 9..$#headers ){
 		
 	# print to file plus header
 	local $" = '';
-  	print OUT ">$header\n@{$storage_var[$ar_idx]}\n";
+  	print OUT ">$header\n$storage_var[$ar_idx]\n";
 }
 
 # remove temp file
