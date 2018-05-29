@@ -194,7 +194,7 @@ while(<VCF>){
 	}
 	
 	# test line
-	last if ($no_sites == 10000);	
+	#last if ($no_sites == 10000);	
 			
 }close VCF;
 close OUTPUT;
