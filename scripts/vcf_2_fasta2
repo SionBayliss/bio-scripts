@@ -66,6 +66,8 @@ my $no_inc_sites = 0;
 my @headers = ();
 my $no_samples = 0;
 
+my @storage_var = ();
+
 # open output file
 open OUTPUT, ">$output.temp" or die " - ERROR: could not open output file\n";
 
@@ -162,18 +164,18 @@ while(<VCF>){
 				}
 			}
 			
-			# print line
-			my @outline = ();
+			# store variants
 			for my $t ( 9..$#headers ){ 
-			
+				
+				my $ar_idx  = $t-9;
+				
 				if( $inc{$t} ){
-					push(@outline, $inc{$t});
+					push(@{$storage_var[$ar_idx]}, $inc{$t});
 				}else{
-					push(@outline, "N");
+					push(@{$storage_var[$ar_idx]}, "N");
 				}
 			
 			}
-			print OUTPUT join("", @outline),"\n";
 			
 		}
 		
@@ -192,32 +194,18 @@ close OUTPUT;
 # feedback
 print "\r - $no_sites variant sites processed - $no_inc_sites included in output.\n";
 print " - $no_sites sites contained $no_variants variants of which $n_vars were Ns.\n - $no_stored_vars/$no_variants variants were printed to output file [freq: $l_threshold-$h_threshold].\n";
-print " - transposing temporary matrix...\n";
+print " - printing fasta file...\n";
 
-# transpose file and convert to fasta for snp-sim
-open TEMP, "$output.temp" or die $!;
-my @t = ();
-while (<TEMP>) {
-    my $l = $_;
-    chomp $l;
-    push @t, [split(//, $l)];
-}
-close TEMP;
-
-# print transposed
-my $col_no = @{$t[0]};
-my $row_no = @t;
-
-# make columns rows
+# print file as fasta
 open OUT, ">$output" or die $!;
-for my $cn (0..($col_no-1)){
-
-	my $header = $headers[$cn+9];
-	my @out = map $t[$_][$cn], 0..($row_no-1); 
+for my $t ( 9..$#headers ){ 
+				
+	my $ar_idx  = $t-9;
+	my $header = $headers[$t];
 		
 	# print to file plus header
 	local $" = '';
-  	print OUT ">$header\n@out\n";
+  	print OUT ">$header\n@{$storage_var[$ar_idx]}\n";
 }
 
 # remove temp file
