@@ -20,7 +20,8 @@ use Pod::Usage;
 			[default: 0.00]
  --fh|freq-high		max snp frequency to include in output 
 			[default: 1.00]
- --n-sites		include n-sites [default: exclude]
+ -n|--n-sites		include n-sites [default: exclude]
+ -l|--list		list of samples to include [default: off]
 			
  General:
  -h|--help		usage information
@@ -28,7 +29,7 @@ use Pod::Usage;
 =cut
 
 # switch buffer off 
- $| = 1;
+$| = 1;
 
 # variables
 my $vcf = "";
@@ -37,6 +38,7 @@ my $output = "";
 my $l_threshold = 0.00;
 my $h_threshold = 1;
 my $ns = 0;
+my $list = '';
 
 my $help = 0; 
 
@@ -50,11 +52,30 @@ GetOptions(
 	'fl|freq-low=f' => \$l_threshold,
 	'fh|freq-high=f' => \$h_threshold,
 	'ns' => \$ns,
+	'list=s' => \$list,
 	
 ) or pod2usage(1);
 pod2usage(1) if $help;
 pod2usage( {-message => q{input vcf is a required arguement}, -exitval => 1, -verbose => 1 } ) if $vcf eq ''; 
 pod2usage( {-message => q{output file is a required arguement}, -exitval => 1, -verbose => 1 } ) if $output eq ''; 
+
+# [optional] open list file
+my %list  = (); 
+if ($list ne ''){
+	open LIST, $list or die " - ERROR: could not open list ($list)\n";
+	while (<LIST>){
+	
+		my $line = $_;
+		chomp $line;
+		
+		$list {$line} = 1;
+		
+	}close LIST;
+	
+	# feedback
+	my $no_samples = keys(%list); 
+	print " - $no_samples samples to include from list file.\n";
+}
 
 # parse vcf file.
 my $no_sites = 0;
@@ -65,6 +86,7 @@ my $no_inc_sites = 0;
 
 my @headers = ();
 my $no_samples = 0;
+my @include = ();
 
 my @storage_var = ();
 
@@ -85,9 +107,6 @@ my $max_pos = scalar(keys(%pos_hash));
 my $temp_string = join("", (0 x $max_pos) );
 %pos_hash = ();
 
-# feedback
-print " - 0 variant sites processed.";
-
 open VCF, $vcf or die "VCF file did not open.\n";
 while(<VCF>){
 	
@@ -97,15 +116,36 @@ while(<VCF>){
 	my @line = split(/\t/, $l, -1);
 	
 	# store headers
-	if(/^#CHROM\tPOS/){	
+	if(/^#CHROM\tPOS/){
+		
 		@headers = @line;
 		$no_samples = scalar(@headers)-9;
 		
+		# check for samples in list 
+		if ($list ne ''){
+			
+			for my $t ( 9..$#headers ){ 
+				if ($list{$headers[$t]}){
+					push(@include, $t);
+				}
+			}
+		
+		}else{
+			
+			for my $t ( 9..$#headers ){ push(@include, $t) }; 	
+		
+		}
+ 
 		# initialise storage
-		for my $t ( 9..$#headers ){ 
-			my $ar_idx = $t-9;				
+		for my $ar_idx ( 0..$#include ){ 				
 			$storage_var[$ar_idx] = $temp_string;
 		}
+		
+		# feedback
+		my $no_found_samples = @include; 
+		print " - $no_found_samples samples found in vcf headers\n";
+		print " - 0 variant sites processed.";
+		
 	}
 	elsif(/^#/){
 	}elsif(/^\S+\t/){
@@ -136,13 +176,14 @@ while(<VCF>){
 		my $no_alleles = @alleles;
 		$no_variants += $no_alleles;
 		$no_alleles = $no_alleles - $n_Ns if $ns == 0;
+		my %al_hash = ();
 		
 		# process if there is > 1 allele 
 		if ( $no_alleles > 1 ){
 			
-			$no_inc_sites++;
 			
 			my %inc = ();
+			my $no_alleles_ch2 = 0; 
 			for my $a_idx (0..$#alleles) {
 		
 				my $a_char = $alleles[$a_idx];
@@ -153,7 +194,7 @@ while(<VCF>){
 					# print a single line for each variant
 					my @inc_idx = ();
 					my $s_count = 0; 				
-					for my $t ( 9..$#headers ){ 
+					for my $t ( @include ){ 	
 			
 						my $v = $line[$t];
 				
@@ -162,6 +203,12 @@ while(<VCF>){
 							++$s_count;
 						}
 						
+					}
+					
+					# increment second allele check
+					if ($s_count > 0 ){
+						$no_alleles_ch2++;
+						$al_hash{$a_idx} = 1; 
 					}
 		
 					# frequency of variants in samples
@@ -174,30 +221,30 @@ while(<VCF>){
 						for (@inc_idx){
 							$inc{$_} = $a_char;
 						}
-						++$no_stored_vars;
-						
-					}else{
 						
 					}
 				}
 			}
 			
 			# store variants
-			for my $t ( 9..$#headers ){ 
-				
-				my $ar_idx  = $t-9;
-				
-				if( $inc{$t} ){
-					substr $storage_var[$ar_idx], ($no_inc_sites-1), 1, $inc{$t};
-					#$storage_var[$ar_idx] = join("", $storage_var[$ar_idx], $inc{$t});
-					#push(@{$storage_var[$ar_idx]}, $inc{$t});
-				}else{
-					substr $storage_var[$ar_idx], ($no_inc_sites-1), 1, "N";
-					#$storage_var[$ar_idx] = substr($storage_var[$ar_idx], ($no_inc_sites-1), 1,  "N" );
-					#$storage_var[$ar_idx] = join("", $storage_var[$ar_idx], "N");
-					#push(@{$storage_var[$ar_idx]}, "N");
-				}
+			if ( $no_alleles_ch2 > 1 ){ # check for > 1 alleles (list file may effect this)
 			
+				# increment counters
+				$no_inc_sites++;
+				$no_stored_vars += scalar(keys(%al_hash)); 
+				
+				for my $ar_idx ( 0..$#include){ 
+
+					my $pos  = $include[$ar_idx];
+				
+					if( $inc{$pos} ){
+						substr $storage_var[$ar_idx], ($no_inc_sites-1), 1, $inc{$pos};
+						
+					}else{
+						substr $storage_var[$ar_idx], ($no_inc_sites-1), 1, "N";
+					}
+			
+				}
 			}
 			
 		}
@@ -209,21 +256,21 @@ while(<VCF>){
 	}
 	
 	# test line
-	#last if ($no_sites == 10000);	
+	last if ($no_sites == 1000);	
 			
 }close VCF;
 close OUTPUT;
 
 # feedback
 print "\r - $no_sites variant sites processed - $no_inc_sites included in output.\n";
-print " - $no_sites sites contained $no_variants variants of which $n_vars were Ns.\n - $no_stored_vars/$no_variants variants were printed to output file [freq: $l_threshold-$h_threshold].\n";
+print " - $no_stored_vars/$no_variants variants were printed to output file [freq: $l_threshold-$h_threshold].\n";
 print " - printing fasta file...\n";
 
 # print file as fasta
 open OUT, ">$output" or die $!;
-for my $t ( 9..$#headers ){ 
+for my $ar_idx ( 0..$#include ){ 
 				
-	my $ar_idx  = $t-9;
+	my $t = $include[$ar_idx];
 	my $header = $headers[$t];
 	my $outline = $storage_var[$ar_idx];
 	$outline =~ s/0//g;
@@ -232,9 +279,6 @@ for my $t ( 9..$#headers ){
 	local $" = '';
   	print OUT ">$header\n$outline\n";
 }
-
-# remove temp file
-`rm $output.temp`;
 
 # feedback 
 print " - complete\n";
