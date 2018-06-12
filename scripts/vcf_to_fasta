@@ -119,7 +119,6 @@ while(<VCF>){
 	if(/^#CHROM\tPOS/){
 		
 		@headers = @line;
-		$no_samples = scalar(@headers)-9;
 		
 		# check for samples in list 
 		if ($list ne ''){

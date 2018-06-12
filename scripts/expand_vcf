@@ -22,6 +22,7 @@ use Pod::Usage;
  --fh|freq-high		max snp frequency to include in output 
 			[default: 1.00]
  --n-sites		include n-sites [default: exclude]
+ -l|--list 		list of samples to include [default: off]
 			
  General:
  -h|--help		usage information
@@ -38,6 +39,7 @@ my $output = "";
 my $l_threshold = 0.00;
 my $h_threshold = 1;
 my $ns = 0;
+my $list = '';
 
 my $help = 0; 
 
@@ -51,11 +53,32 @@ GetOptions(
 	'fl|freq-low=f' => \$l_threshold,
 	'fh|freq-high=f' => \$h_threshold,
 	'ns' => \$ns,
+	'list=s' => \$list,
 	
 ) or pod2usage(1);
 pod2usage(1) if $help;
 pod2usage( {-message => q{input vcf is a required arguement}, -exitval => 1, -verbose => 1 } ) if $vcf eq ''; 
 pod2usage( {-message => q{output file is a required arguement}, -exitval => 1, -verbose => 1 } ) if $output eq ''; 
+
+
+# [optional] open list file
+my %list  = (); 
+my $no_samples_list;
+if ($list ne ''){
+	open LIST, $list or die " - ERROR: could not open list ($list)\n";
+	while (<LIST>){
+	
+		my $line = $_;
+		chomp $line;
+		
+		$list {$line} = 1;
+		
+	}close LIST;
+	
+	# feedback
+	$no_samples_list = keys(%list); 
+	print " - $no_samples_list samples to include from list file.\n";
+}
 
 # parse vcf file.
 my $no_sites = 0;
@@ -65,12 +88,10 @@ my $n_vars = 0;
 
 my @headers = ();
 my $no_samples = 0;
+my @include = ();
 
 # open output file
 open OUTPUT, ">$output" or die " - ERROR: could not open output file\n";
-
-# feedback
-print " - 0 variant sites processed.";
 
 open VCF, $vcf or die "VCF file did not open.\n";
 while(<VCF>){
@@ -82,9 +103,38 @@ while(<VCF>){
 	
 	# store headers
 	if(/^#CHROM\tPOS/){	
+				
 		@headers = @line;
 		$no_samples = scalar(@headers)-9;
-		print OUTPUT "$l\n";
+		
+		# check for samples in list 
+		if ($list ne ''){
+			
+			for my $t ( 9..$#headers ){ 
+				if ($list{$headers[$t]}){
+					push(@include, $t);
+				}
+			}
+		
+		}else{
+			
+			for my $t ( 9..$#headers ){ push(@include, $t) }; 	
+		
+		}
+		
+		# print reduced header
+		my $headerline = join("\t", @headers[0..8], @headers[@include]);
+		print OUTPUT "$headerline\n";
+		
+		# feedback
+		my $no_found_samples = @include; 
+		if($list ne ""){
+			print " - $no_found_samples samples of $no_samples_list found in vcf headers\n";
+		}else{
+			print " - $no_found_samples samples found in vcf headers\n";
+		}
+		print " - 0 variant sites processed.";
+		
 	}
 	elsif(/^#/){
 		print OUTPUT "$l\n";
@@ -130,7 +180,7 @@ while(<VCF>){
 					# print a single line for each variant
 					my @outline = ( @line[0..3], $a_char, @line[5..8] );	
 					my $s_count = 0; 				
-					for my $t ( 9..$#headers ){ 
+					for my $t ( @include ){ 
 			
 						my $v = $line[$t];
 				
