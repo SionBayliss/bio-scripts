@@ -1,0 +1,195 @@
+#!/usr/bin/env perl
+
+
+
+
+use strict;
+use warnings;
+use Getopt::Long qw(GetOptions);
+use Pod::Usage;
+
+# simulate pres file for pyseer/treeWAS.
+
+=head1  SYNOPSIS
+
+ simulate_pres -i  /path/to/input_file -o /path/to/output_file
+
+ Input/Output:
+ -i|--input		input phenotype file [required]
+ -o|--output	output vcf file [required]
+ 
+ Filtering options:
+ -l|--list 		list of samples to include [default: off]
+ 
+ Output options:
+ -d|--depth 	randomly remove from 0..n samples [default: 5]
+ -r|--repeats	iterate at each value of -r x times [default: 5]
+ 			
+ General:
+ -h|--help		usage information
+ 
+=cut
+
+# switch buffer off 
+$| = 1;
+
+# variables
+my $input = "";
+my $output = "";
+
+my $list = '';
+my $deep = 5;
+my $iterations = 5;
+
+my $help = 0; 
+
+GetOptions(
+
+	'help|?' 	=> \$help,
+	
+	'input=s' 	=> \$input,
+	'output=s'	=> \$output,
+	
+	'depth=i' => \$deep,
+	'repeats=i' => \$iterations,
+	
+	'list=s' => \$list,
+	
+) or pod2usage(1);
+pod2usage(1) if $help;
+pod2usage( {-message => q{input vcf is a required arguement}, -exitval => 1, -verbose => 1 } ) if $input eq ''; 
+pod2usage( {-message => q{output file is a required arguement}, -exitval => 1, -verbose => 1 } ) if $output eq ''; 
+
+# [optional] open list file
+my %list  = (); 
+my $no_samples_list;
+if ($list ne ''){
+	open LIST, $list or die " - ERROR: could not open list ($list)\n";
+	while (<LIST>){
+	
+		my $line = $_;
+		chomp $line;
+		
+		$list {$line} = 1;
+		
+	}close LIST;
+	
+	# feedback
+	$no_samples_list = keys(%list); 
+	print " - $no_samples_list samples to include from list file.\n";
+}
+
+# parse input file 
+my %samples  = ();
+my $l_count = 0;
+my @headers = ();
+my $no_samples = 0; 
+
+open IN, $input or die " - ERROR: could not open input file ($input)\n";
+while (<IN>){
+	
+	my $line = $_;
+	chomp $line;
+	
+	++$l_count;
+	
+	my @vars = split("\t", $line, -1);
+	
+	# headers
+	if( $l_count == 1 ){
+		
+		@headers = @vars[1..$#vars];
+		
+	}else{
+		
+		my $include = 1;
+		$include = 0 if ( ($list ne '') && ( $list{$vars[0]} ) );
+		
+		if( $include == 1 ){
+			
+			for my $i ( 1.. $#vars ){
+				$samples {$headers[$i-1]} {$vars[0]} = "$vars[$i]";			
+			}
+			
+			++$no_samples;
+			
+		}
+	}
+}close IN;
+
+# feedback
+print " - $no_samples samples to include in output vcf.\n";
+
+# simulate a vcf for each sample in headers
+for my $h (@headers){
+	
+	# feedback
+	print " - processing $h.\n";
+	
+	# open output file
+	my $file_name = sprintf("%s\.%s.pres", $output, $h);
+	open OUTPUT, ">$file_name" or die " - could not open $file_name for writing\n";
+	
+	# count instances of phenotype
+	my $count = 0;
+	my %inc = ();
+	my @ind = ();
+	for my $p ( sort keys %{$samples{$h}} ){
+		if ( $samples{$h}{$p} == 1 ){
+			$inc{$count} = "1";
+			$count++; 
+			push(@ind, "$count");
+		}
+	}
+	
+	# samples
+	my @samples = sort keys %{$samples{$h}};
+	
+	# print header line
+	my $header_out = sprintf("id\t%s\n", join("\t", @samples) ); 
+	print OUTPUT $header_out;
+	
+	# make dummy variant line matching all instances of phenotype, then select n-1 samples at random and so on.
+	for my $curr_no (0..$deep){  
+		
+		# for n iterations
+		for my $i_no ( 0..$iterations ){		
+		
+			# set include variable 
+			my %inc_sub = %inc;
+		
+			# identify samples to include - randomly remove $curr_n
+			my %remove = ();
+			for (0..$curr_no){
+				my $rep = 0;
+				my $r_ind = "";
+				while( $rep == 0 ){
+					my $rand =  rand($#ind);
+					if (!$remove{$rand}){
+					
+						# store randm number generated
+						$remove {$rand} = 1;
+					
+						# do not include in output
+						$inc_sub {$ind[$rand]} = "0";
+					
+						# break loop
+						$rep = 1; 	
+					}
+				}
+			}
+		
+			# print output line
+			my @out_line = (sprintf("%s\_%s", $curr_no, $i_no));
+			for my $f ( 0..$#samples ){
+				if( $inc_sub{$f} ){
+					push(@out_line, "1");
+				}else{
+					push(@out_line, "0");
+				}	
+			} 	
+			print OUTPUT sprintf("%s\n", join("\t", @out_line) );
+			
+		}
+	}
+}
