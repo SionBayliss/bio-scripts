@@ -21,7 +21,8 @@ use Pod::Usage;
 			[default: 0.00]
  --fh|freq-high		max snp frequency to include in output 
 			[default: 1.00]
- --n-sites		include n-sites [default: exclude]
+ -n|--n-sites	include n-sites [default: exclude]
+ -s|--store-inv	store alleles that are the inverse of another [default:off] 
  -l|--list 		list of samples to include [default: off]
 			
  General:
@@ -29,8 +30,8 @@ use Pod::Usage;
  
 =cut
 
-# swicth buffer off 
- $| = 1;
+# switch buffer off 
+$| = 1;
 
 # variables
 my $vcf = "";
@@ -40,6 +41,7 @@ my $l_threshold = 0.00;
 my $h_threshold = 1;
 my $ns = 0;
 my $list = '';
+my $store_inv = 0;
 
 my $help = 0; 
 
@@ -52,7 +54,9 @@ GetOptions(
 	
 	'fl|freq-low=f' => \$l_threshold,
 	'fh|freq-high=f' => \$h_threshold,
+	
 	'ns' => \$ns,
+	'store_inv' => \$store_inv,
 	'list=s' => \$list,
 	
 ) or pod2usage(1);
@@ -60,6 +64,19 @@ pod2usage(1) if $help;
 pod2usage( {-message => q{input vcf is a required arguement}, -exitval => 1, -verbose => 1 } ) if $vcf eq ''; 
 pod2usage( {-message => q{output file is a required arguement}, -exitval => 1, -verbose => 1 } ) if $output eq ''; 
 
+# feedback - settings
+print "\nSettings:\n";
+if ($ns == 1){
+	print " - including Ns in output.\n";
+}else{
+	print " - excluding Ns in output.\n";
+}
+if ($store_inv == 1){
+	print " - including inverse_alleles in output.\n";
+}else{
+	print " - excluding inverse_alleles in output.\n";
+} 
+print "\nRunning:\n";
 
 # [optional] open list file
 my %list  = (); 
@@ -89,9 +106,10 @@ my $n_vars = 0;
 my @headers = ();
 my $no_samples = 0;
 my @include = ();
+my $inverse = 0;
 
 # open output file
-open OUTPUT, ">$output" or die " - ERROR: could not open output file\n";
+open OUTPUT, ">$output" or die " - ERROR: could not open output file.\n";
 
 open VCF, $vcf or die "VCF file did not open.\n";
 while(<VCF>){
@@ -105,8 +123,7 @@ while(<VCF>){
 	if(/^#CHROM\tPOS/){	
 				
 		@headers = @line;
-		$no_samples = scalar(@headers)-9;
-		
+				
 		# check for samples in list 
 		if ($list ne ''){
 			
@@ -127,11 +144,11 @@ while(<VCF>){
 		print OUTPUT "$headerline\n";
 		
 		# feedback
-		my $no_found_samples = @include; 
+		$no_samples = @include; 
 		if($list ne ""){
-			print " - $no_found_samples samples of $no_samples_list found in vcf headers\n";
+			print " - $no_samples samples of $no_samples_list found in vcf headers.\n";
 		}else{
-			print " - $no_found_samples samples found in vcf headers\n";
+			print " - $no_samples samples found in vcf headers.\n";
 		}
 		print " - 0 variant sites processed.";
 		
@@ -167,6 +184,10 @@ while(<VCF>){
 		$no_variants += $no_alleles;
 		$no_alleles = $no_alleles - $n_Ns if $ns == 0;
 		
+		# reset site store
+		my %site_store = ();
+		my %count_store = ();
+		
 		# process if there is > 1 allele 
 		if ( $no_alleles > 1 ){
 		
@@ -197,14 +218,49 @@ while(<VCF>){
 		
 					# store variant if between frequency thresholds
 					if ( ( $freq <= $h_threshold ) && ( $freq >= $l_threshold ) ){
-					
-						my $output_line = join("\t", @outline);
-						print OUTPUT "$output_line\n";
 						
-						++$no_stored_vars;
+						# make output line
+						my $output_line = join("\t", @outline);
+						
+						# store line and freq
+						$site_store{$a_idx+1} = $output_line;
+						$count_store{$a_idx+1} = $s_count; 						
 						
 					}
 				}
+			}
+		}
+		
+		# print site store if necessary
+		my @stored_counts = values(%count_store);
+		my $no_vars_stored = scalar(@stored_counts);
+		my $total_count = 0;
+		for (@stored_counts){ $total_count += $_ };
+		 
+		# check not two inverse allelles across all samples. 
+		my $is_inverse = 0;
+		if ( ($no_vars_stored == 2) && ($total_count == $no_samples) ){
+			$is_inverse = 1;
+			++$inverse;
+		}
+		
+		# print appropriate info
+		if ( ($store_inv == 0) && ($is_inverse == 1) ){
+	
+			my @indexes = sort { $count_store{$a} <=> $count_store{$b} } keys(%count_store);
+			my $first_idx = $indexes[0];
+			
+			# print first
+			print OUTPUT $site_store{$first_idx}."\n";
+			
+			++$no_stored_vars;
+			
+		}
+		# otherwise print all alleles
+		else{
+			for my $i ( sort keys %site_store ){ 
+				print OUTPUT $site_store{$i}."\n"; 
+				++$no_stored_vars;
 			}
 		}
 		
@@ -215,11 +271,14 @@ while(<VCF>){
 	}
 	
 	# test line
-	#last if ($no_sites == 1000);	
+	#last if ($no_sites == 10000);	
 			
 }close VCF;
 close OUTPUT;
 
 # feedback
-print "\r - $no_sites variant sites processed.\n";
-print " - $no_sites sites contained $no_variants variants of which $n_vars were Ns.\n - $no_stored_vars/$no_variants variants were printed to output file [freq: $l_threshold-$h_threshold].\n";
+print "\r - $no_sites variant sites processed.\n\nSummary:\n";
+print " - $no_sites sites contained $no_variants variants.\n";
+print " - $n_vars variants were Ns.\n";
+print " - $inverse variants were inverse alleles.\n";
+print " - $no_stored_vars/$no_variants variants were printed to output file [freq: $l_threshold-$h_threshold].\n\n";
