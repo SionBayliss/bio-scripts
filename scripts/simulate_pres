@@ -136,10 +136,10 @@ for my $h (@headers){
 	my @ind = ();
 	for my $p ( sort keys %{$samples{$h}} ){
 		if ( $samples{$h}{$p} == 1 ){
-			$inc{$count} = "1";
-			$count++; 
+			$inc{"$count"} = "1";
 			push(@ind, "$count");
 		}
+		$count++;
 	}
 	
 	# samples
@@ -160,21 +160,28 @@ for my $h (@headers){
 		
 			# identify samples to include - randomly remove $curr_n
 			my %remove = ();
-			for (0..$curr_no){
-				my $rep = 0;
-				my $r_ind = "";
-				while( $rep == 0 ){
-					my $rand =  rand($#ind);
-					if (!$remove{$rand}){
+			
+			unless ($curr_no == 0){
+				for ( 0..($curr_no-1) ){
+			
+					my $rep = 0;
+					my $r_ind = "";
+				
+					while( $rep == 0 ){
 					
-						# store randm number generated
-						$remove {$rand} = 1;
+						my $rand =  int(rand($#ind));
 					
-						# do not include in output
-						$inc_sub {$ind[$rand]} = "0";
+						if (!$remove{$rand}){
 					
-						# break loop
-						$rep = 1; 	
+							# store randm number generated
+							$remove {$rand} = 1;
+					
+							# do not include in output
+							$inc_sub {$ind[$rand]} = "0";
+						
+							# break loop
+							$rep = 1; 	
+						}
 					}
 				}
 			}
