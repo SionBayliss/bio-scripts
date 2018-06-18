@@ -84,7 +84,7 @@ my $no_variants = 0;
 my $no_stored_vars = 0;
 my $n_vars = 0; 
 my $no_inc_sites = 0;
-
+my $no_samples = 0;
 my @headers = ();
 my @include = ();
 
@@ -141,7 +141,7 @@ while(<VCF>){
 		}
 		
 		# feedback
-		my $no_samples = @include; 
+		$no_samples = @include; 
 		print " - $no_samples samples found in vcf headers\n";
 		print " - 0 variant sites processed.";
 		
