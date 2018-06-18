@@ -61,6 +61,7 @@ pod2usage( {-message => q{output file is a required arguement}, -exitval => 1, -
 
 # [optional] open list file
 my %list  = (); 
+my $no_samples_list = 0;
 if ($list ne ''){
 	open LIST, $list or die " - ERROR: could not open list ($list)\n";
 	while (<LIST>){
@@ -73,8 +74,8 @@ if ($list ne ''){
 	}close LIST;
 	
 	# feedback
-	my $no_samples = keys(%list); 
-	print " - $no_samples samples to include from list file.\n";
+	$no_samples_list = keys(%list); 
+	print " - $no_samples_list samples to include from list file.\n";
 }
 
 # parse vcf file.
@@ -85,7 +86,6 @@ my $n_vars = 0;
 my $no_inc_sites = 0;
 
 my @headers = ();
-my $no_samples = 0;
 my @include = ();
 
 my @storage_var = ();
@@ -141,8 +141,8 @@ while(<VCF>){
 		}
 		
 		# feedback
-		my $no_found_samples = @include; 
-		print " - $no_found_samples samples found in vcf headers\n";
+		my $no_samples = @include; 
+		print " - $no_samples samples found in vcf headers\n";
 		print " - 0 variant sites processed.";
 		
 	}
