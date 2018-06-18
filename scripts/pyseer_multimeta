@@ -15,13 +15,17 @@ use File::Basename;
 	
  Input variants:
  --pres 	input variant presence absence file [optional]
- --vcf		input vcf file [optional]
+ --vcf	input vcf file [optional]
  --kmers	input kmer file [optional]
  [required: one of the above]
  
  Phenotype/Similarities:
- --sim		similarity matrix [required]
- --phen		phenotype table [required] 
+ --sim	similarity matrix [required]
+ --phen	phenotype table [required] 
+ 
+ Pyseer Options:
+ --min-af	frequency to exclude minor allele [default: 0.01]
+ --max-af	frequency to exclude major allele [default: 0.01]
  
  Output:
  --output 	output directory [required] 
@@ -29,7 +33,7 @@ use File::Basename;
  		outputs [optional] 
   
  Usage:
- --print-samples	print samples to pyseer output files
+ --prints	print samples to pyseer output files
  --r-lmm	reuse lmm file, only use if metadata and variants
  		match exactly [default: off] 
  --no-qq	switch off qqplot [default: on if --scripts]
@@ -51,6 +55,9 @@ my $pyseer_scripts = '';
 
 my $print_samples = 0;
 
+my $min_af = 0.01;
+my $max_af = 0.99;
+
 my $rlmm = 0;
 my $no_qq = 0;
 my $cpus = 1;
@@ -69,8 +76,11 @@ GetOptions(
 	'output=s' => \$output_dir,
 	'scripts=s' => \$pyseer_scripts,
 	
-	'print-samples' => \$print_samples,
-
+	'prints' => \$print_samples,
+	
+	'min-af' => \$min_af,
+	'max-af' => \$max_af,
+	
 	'r-lmm'	=> \$rlmm,
 	'no-qq'	=> \$no_qq,
 	'cpus=i'	=> \$cpus,
@@ -202,7 +212,7 @@ for my $i (0..$#phenotypes){
 		print "\n\t- file: $file ($com):\n";
 		 
 		# prepare command line	
-		my @args = ();
+		my @args = ("--min-af $min_af", "--max-af $max_af");
 		
 		# NOTE: sample lists have to match between runs - if the original LMM removes some isolates from the sample list then --load-lmm will throw an error in later runs
 		# either check inputs abeforehand or run LMM each time

@@ -1,0 +1,110 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+use Getopt::Long;
+use Pod::Usage;
+
+# convert biosample to SRA sample accession
+
+=head1  SYNOPSIS
+
+ biosample_to_sample_accession -i /path/to/input_file/ -o /path/to/output_file 
+ 
+ Input/Output:
+ -i|--input		input list [required]
+ -o|--output	output file [required]	
+ 
+ Options
+ --col-idx		zero-indexed column in which biosample numbers 
+ 			are found [default: 0]
+ --col-head		column header in which to find biosample numbers
+ 			[default: off]
+ -d|--delim		column delimiter [default: "\t"]
+ 
+ General:
+ -h|--help		usage information
+ 
+=cut
+
+# command line options
+my $input = '';
+my $output = '';
+
+my $col = 0;
+my $header = '';
+
+my $delim = "\t";
+
+my $help = 0;
+
+GetOptions(
+
+	'help|?' 	=> \$help,
+	
+	'input=s' 	=> \$input,
+	'output=s'	=> \$output,
+	
+	'col-idx=i' => \$col,
+	'col-head=s' => \$header,
+	
+	'delim=s' => \$delim,
+	
+) or pod2usage(1);
+pod2usage(1) if $help;
+pod2usage( {-message => q{ - ERROR: input list is a required arguement}, -exitval => 1, -verbose => 1 } ) if $input eq ''; 
+pod2usage( {-message => q{ - ERROR: output file is a required arguement}, -exitval => 1, -verbose => 1 } ) if $output eq ''; 
+
+# check for toolbox
+
+# create output file 
+open OUTPUT, ">$output" or die " - ERROR: could not open output file - $output\n";
+
+# open input file 
+my $count = 0;
+open IN, $input or die " - ERROR: could not open input - $input\n";
+while (<IN>){
+	
+	++$count;
+	
+	my $line  = $_;
+	chomp $line;
+	
+	# split line on delim 
+	my @vars = split(/$delim/, $line, -1);
+	
+	# check for headers
+	if ( ($header ne "") && ($count  == 1) ){
+		
+		my $temp_idx = "";
+		for my $i (0..$#vars){ $temp_idx = $i if ($vars[$i] eq $header) }
+		
+		# sanity check 
+		die " - ERROR: header not found in first line\n" if $temp_idx eq "";
+		
+		# store col_idx 
+		$col = $temp_idx;
+		
+		# print headers
+		print OUTPUT sprintf("%s%s%s\n", $line, $delim, "Accession");
+		 
+	}
+	# find biosample and print to final 
+	else{
+	
+		# variables 
+		my $biosample = $vars[$col];
+
+		# run esearch
+		my $SRR = "";		
+		$SRR = `esearch -db sra -query $biosample </dev/null | efetch -format docsum | xtract -pattern Runs -element Run\@acc`;
+		$SRR =~ s/\n$//; # remove newline
+		
+		# print
+		print OUTPUT sprintf("%s%s%s\n", $line, $delim, $SRR); 
+		
+		# sleep to keep NCBI happy
+		sleep(3);
+	}
+	
+}close IN;
