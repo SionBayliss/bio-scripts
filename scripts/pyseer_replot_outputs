@@ -1,0 +1,214 @@
+#!/usr/bin/env perl
+ 
+use strict;
+use warnings qw(all);
+
+use Getopt::Long qw(GetOptions :config no_ignore_case);
+use Pod::Usage;
+use File::Basename;
+
+# reproduce outputs from pyseer multimeta
+
+=head1  SYNOPSIS
+
+	pyseer_multimeta 
+	
+ Input variants:
+ --pres 	input variant presence absence file [optional]
+ --vcf	input vcf file [optional]
+ --kmers	input kmer file [optional]
+ [required: one of the above]
+ --pheno         phenotype file [required]
+
+ Output:
+ --alpha        alpha to use for filtering [default: 0.05]
+ --output 	output directory [required] 
+ --scripts	path to pyseer scripts, enables additional 
+ 		outputs [required] 
+  
+ Usage:
+ --cpus		number of cpus to use for analysis [default: 1]
+ -q|--quiet	switch off verbose [not implemented]
+ -h|--help 	usage information
+  
+=cut
+
+# command line options
+my @vcf = ();
+my @pres = ();
+my @kmers = ();
+
+my $phenotype = '';
+my $output_dir = '';
+my $pyseer_scripts = '';
+
+my $alpha = 0.05;
+my $cpus = 1;
+my $quiet = 0;
+my $help = 0;
+
+pod2usage(1) if scalar(@ARGV) == 0;
+GetOptions(
+
+	'pres=s' 	=> \@pres,
+	'vcf=s'	=> \@vcf,
+	'kmers=s'	=> \@kmers,
+	
+	'alpha=f' => \$alpha,
+	'phenotype=s' => \$phenotype,
+	'output=s' => \$output_dir,
+	'scripts=s' => \$pyseer_scripts,
+	
+	'cpus=i'	=> \$cpus,
+	'quiet'	=> \$quiet,	
+	'help|?' 	=> \$help,
+
+) or die pod2usage(1);
+pod2usage(1) if $help;
+
+# check options
+die " - ERROR: must specify phenotype file with --phenotype\n" if $phenotype eq "";
+die " - ERROR: must specify output directory with --output\n" if $output_dir eq "";
+die " - ERROR: must specify scripts path --scripts\n" if $pyseer_scripts eq "";
+
+# check output directory exists or can be created
+unless ( -e $output_dir ){
+	die " - ERROR: $output_dir does not exist";
+}
+
+# check vcf, kmer, pres files
+open LIST, ">$output_dir/file_index.txt"; 
+my %input_files = ();
+my $count = 0;
+print "\nInput files:\n";
+for (@kmers){
+	print "$_\n";
+	++$count;
+	$input_files{$count}{"file"} = $_;
+	$input_files{$count}{"com"} = "--kmers";
+	print LIST "$count\tkmers\t$_\n";
+}
+for (@vcf){
+	print "$_\n"; 
+	++$count;
+	$input_files{$count}{"file"} = $_;
+	$input_files{$count}{"com"} = "--vcf";
+	print LIST "$count\tvcf\t$_\n";
+}
+for (@pres){
+	print "$_\n";
+	++$count;
+	$input_files{$count}{"file"} = $_;
+	$input_files{$count}{"com"} = "--pres";
+	print LIST "$count\tpres\t$_\n";
+}close LIST;
+my $total_inputs = $count;
+die " - ERROR: supply inputs with either --vcf, --pres or --kmers\n" if $total_inputs == 0;
+
+# check number of phenotypes
+my $p_count;
+my %p_types = ();
+my %samples = ();
+my @phenotypes = ();
+open PHEN, $phenotype or die " - ERROR: could not open $phenotype\n";
+while (<PHEN>){
+	
+	++$p_count;
+	
+	my $line = $_;
+	chomp $line;
+	
+	my @vars = split(/\t/, $line, -1);  
+	
+	# headers
+	if($p_count == 1){
+		
+		# store phenotypes
+		@phenotypes = @vars[1..$#vars];
+		for (@phenotypes) { $p_types {$_} = 1 };
+				
+	}
+	# values
+	else{
+	
+		# check sample
+		print " - WARNING: $vars[0] included in phentypes more than once\n" if $samples{$vars[0]}; 		
+			
+		# store sample name
+		$samples{$vars[0]} = 1; 
+		
+		# check phenotype type (0,1,NA is binary, otherwise continuous)
+		for my $i ( 1..$#vars ){
+			
+			if ($vars[$i] !~ /1|0|NA/){
+				$p_types { $phenotypes[$i-1] } = 2;
+			} 
+			
+		}
+		
+	}
+}close PHEN;
+
+# number of samples/phenotypes
+my $no_sample = keys(%samples);
+my $no_phenotypes = scalar(@phenotypes);
+
+# feedback 
+print "\n - samples = $no_sample\n";
+print " - recreating outputs for $no_phenotypes phenotype(s) on $total_inputs input files:\n";
+
+# loop through all phenotypes
+for my $i (0..$#phenotypes){
+	
+	# phenotype
+	my $p = $phenotypes[$i];
+	
+	# feedback 
+	print "\n - $p:\n";
+	
+	# output directory
+	my $p_out = "$output_dir/$p"; 
+	unless ( -e $p_out ){
+		die " - ERROR: $p_out does not exist.\n";
+	}
+	
+	# loop through all input files
+	for my $f (sort {$a<=>$b} keys %input_files){
+	
+		my $file  = $input_files{$f}{"file"};
+		print "\n\t- file: $file:\n";
+		  
+		# subset top 1000 hits
+		print "\t- sorting top hits\n";
+		#if ( $print_samples == 1 ){
+		#	`cut -f 1,2,3,4,5,6,7,10 < $p_out/$f.results.tsv | sort --parallel=$cpus -g -k4,4 | head -1000 > $p_out/$f.top_hits.tsv`;
+		#}else{
+			`cat $p_out/$f.results.tsv | sort --parallel=$cpus -g -k4,4 | head -1000 > $p_out/$f.top_hits.tsv`;		
+		#}
+		
+		# count patterns
+		print "\t- counting patterns top hits\n";
+		my $count_out = `python $pyseer_scripts/count_patterns.py --alpha $alpha --memory 6000 --temp $p_out/tmp $p_out/$f.patterns.txt | tee $p_out/$f.pattern_numbers.txt`;
+		print " - WARNING: count_patterns.py failed:\n$count_out\n" if $?;
+			
+		# filter file for significant hits after correction
+		$count_out =~ /Threshold:\s+(.+)/;
+		my $sig_thresh = $1;
+			
+		# headers
+		print "\t- preparing significant hits\n";
+		`head -1 $p_out/$f.results.tsv > $p_out/$f.sig_hits.tsv`;
+		`awk \'\{ if (\$4 <= $sig_thresh) print \$0 \}\' < $p_out/$f.results.tsv >> $p_out/$f.sig_hits.tsv`;
+			
+ 		# qqplot
+ 		print "\t- creating qqplot\n";
+		my $qq_out = `python $pyseer_scripts/qq_plot.py --output $p_out/$f\_qqplot.png $p_out/$f.results.tsv 2>&1`;
+		print " - WARNING: qq_plot.py failed:\n$qq_out\n" if $?;	
+							
+		
+	}
+}
+
+# feedback
+print "\n - completed\n\n";
+
