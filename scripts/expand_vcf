@@ -88,7 +88,9 @@ if ($list ne ''){
 		my $line = $_;
 		chomp $line;
 		
-		$list {$line} = 1;
+		my @vars = split(/\t/, $line, -1);
+		
+		$list {$vars[0]} = 1 unless $vars[0] eq "id";
 		
 	}close LIST;
 	
@@ -130,6 +132,7 @@ while(<VCF>){
 			for my $t ( 9..$#headers ){ 
 				if ($list{$headers[$t]}){
 					push(@include, $t);
+					$list {$headers[$t]} = 2;
 				}
 			}
 		
@@ -138,6 +141,14 @@ while(<VCF>){
 			for my $t ( 9..$#headers ){ push(@include, $t) }; 	
 		
 		}
+		
+		# list missing samples
+		my @missing_samples = ();
+		for ( keys %list ){
+			push(@missing_samples, $_) if $list{$_} == 1;
+		}
+		print "missing samples:\n" if scalar(@missing_samples) > 0;
+		print sprintf("%s\n", join("\n", @missing_samples)) if scalar(@missing_samples) > 0;
 		
 		# print reduced header
 		my $headerline = join("\t", @headers[0..8], @headers[@include]);

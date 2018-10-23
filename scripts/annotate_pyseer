@@ -13,12 +13,10 @@ use Pod::Usage;
  
  Input/Output:
  -i|--input		input list [required]
- -p|--pirate		output file from PIRATE [required]
- -o|--output		output file [required]	
+ -p|--pirate	output file from PIRATE [required]
+ -o|--output	output file [required]	
+ -v|--vcf		annotated vcf [optional]
 
- Options:
- --columns		columns to print from PIRATE
- 
  General:
  -h|--help		usage information
  
@@ -30,6 +28,7 @@ my $pirate = '';
 my $output = '';
 my $cols = '1,2,3,4,5,6';
 
+my $vcf = "";
 my $help = 0;
 
 GetOptions(
@@ -40,6 +39,7 @@ GetOptions(
 	'pirate=s' 	=> \$pirate,
 	'output=s'	=> \$output,
 	'columns=s' => \$cols,
+	'vcf=s' => \$vcf,
 	
 ) or pod2usage(1);
 pod2usage(1) if $help;
@@ -52,6 +52,9 @@ my @columns = split(/,/, $cols);
 
 # parse input hits
 my %alleles = ();
+my %snps = ();
+my $snp_no = 0;
+my $allele_no = 0;
 open LIST, $input or die " - ERROR: could not open $input\n";
 while (<LIST>){
 
@@ -62,13 +65,23 @@ while (<LIST>){
 	
 	# store
 	unless(/variant/){
-		$alleles{$vars[0]} = 1;
+	
+		# store relevent info
+		if ($vars[0] =~ /\d+\_(\d+)\_\S\_\S/){ # snps
+			$snps{$1} = 1;
+			$snp_no++;
+		}else{ # alleles/presence/absence	
+			$alleles{$vars[0]} = 1;
+			$allele_no++;
+		}
 	}
 	
 }close LIST;
 
+# feedback
+print " - $snp_no snps found in vcf\n - $allele_no alleles found in vcf\n";
+
 # parse PIRATE file and store annotation
-my $count = 0;
 my %store = ();
 my $headers = ();
 
@@ -86,27 +99,56 @@ while (<PAN>){
 	if(/allele_name/){
 		
 		$headers = join("\t", @vars[@columns]);
+		print " - printing PIRATE columns @vars[@columns]\n";
 		
 	}else{
 		
-		if ($alleles{$a}){
-		
-			# store relevant info
-			my $store_line = join( "\t", @vars[@columns] ); 
-			$store{$a} = $store_line;
-												
-			# increment count
-			++$count;
-		}
+		# store relevant info
+		my $store_line = join( "\t", @vars[@columns] ); 
+		$store{$a} = $store_line;
 	}
 	
 }close PAN;
+
+# parse annotated vcf and store info
+if ($vcf ne ""){
+	
+	open VCF, $vcf or die $!;
+	while(<VCF>){
+	
+		my $line  = $_;
+		chomp $line;
+		
+		my @vars = split( /\t/, $line, -1);
+		#print "$vars[1]\n";
+		
+		#die "yup\n" if ($vars[1] == 1023167) && ($snps{$vars[1]});
+		#die "here***************\n" if $vars[1] == 1023167;
+		
+		# store if in hits file
+		if ($snps{$vars[1]}){
+			
+			if ($line =~ /\[CDS\|(\S+)\|[+-]\|(.+)\|(.+)\|nt/ ){;
+				my $gene_f = $1;
+
+				my $g_name = $2;
+				my $prod = $3;
+			
+				my $store_line  = sprintf( "%s\t%s\t%s\tNA\tNA\tNA", $gene_f, $g_name, $prod );
+				$store{$vars[1]} = $store_line; 
+			}
+		}
+		
+	}close VCF; 
+}
 
 # parse input and print additional info from PIRATE
 
 # open output file
 open OUT, ">$output" or die $!;
 
+my $count_a = 0;
+my $count_s = 0;
 open LIST, $input or die " - ERROR: could not open $input\n";
 while (<LIST>){
 
@@ -123,10 +165,22 @@ while (<LIST>){
 	# prepare info line
 	else{
 		
-		if( !$store{$vars[0]} ){
+		# snps 
+		if ($vars[0] =~ /\d+\_(\d+)\_\S\_\S/){
+		
+			if ($store{$1}){
+				$outline = sprintf( "%s\t%s\t%s\n" , $vars[0], $store{$1}, join("\t", @vars[1..$#vars]) );
+				$count_s++;
+			}else{
+				print " - ERROR: snp position $1 was not in vcf\n";
+			}
+			
+		# gene families/alleles
+		}elsif( !$store{$vars[0]} ){
 			print " - WARNING: no info found for allele $a\n";
 		}else{
 			$outline = sprintf( "%s\t%s\t%s\n" , $vars[0], $store{$vars[0]}, join("\t", @vars[1..$#vars]) );
+			$count_a++;
 		}
 	}
 	
@@ -137,4 +191,5 @@ while (<LIST>){
 
 # feedback
 my $no_alleles = keys %alleles;
-print " - $count/$no_alleles alleles printed to output file.\n";
+print " - $count_a/$allele_no alleles printed to output file.\n";
+print " - $count_s/$snp_no snps printed to output file.\n";

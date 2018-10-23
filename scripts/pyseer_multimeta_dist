@@ -19,8 +19,8 @@ use File::Basename;
  --kmers	input kmer file [optional]
  [required: one of the above]
  
- Phenotype/Similarities:
- --sim	similarity matrix [required]
+ Phenotype/Phylogeny:
+ --tree	distance matrix [required]
  --phen	phenotype table [required] 
  
  Pyseer Options:
@@ -48,7 +48,7 @@ my @vcf = ();
 my @pres = ();
 my @kmers = ();
 
-my $sim = '';
+my $tree = '';
 my $phenotype = '';
 my $output_dir = '';
 my $pyseer_scripts = '';
@@ -71,7 +71,7 @@ GetOptions(
 	'vcf=s'	=> \@vcf,
 	'kmers=s'	=> \@kmers,
 	
-	'similarites=s'	=> \$sim,
+	'tree=s'	=> \$tree,
 	'phenotype=s' => \$phenotype,
 	'output=s' => \$output_dir,
 	'scripts=s' => \$pyseer_scripts,
@@ -93,7 +93,7 @@ pod2usage(1) if $help;
 # check options
 die " - ERROR: must specify phenotype file with --phenotype\n" if $phenotype eq "";
 die " - ERROR: must specify output directory with --output\n" if $output_dir eq "";
-die " - ERROR: must specify similarities file with --sim\n" if $sim eq "";
+die " - ERROR: must specify tree file with --tree\n" if $tree eq "";
 
 # check output directory exists or can be created
 unless ( -e $output_dir ){
@@ -185,7 +185,7 @@ for my $i (0..$#phenotypes){
 	my $p = $phenotypes[$i];
 	
 	# reset lmm initialisation variable
-	my $lmm_file = "";
+	my $m_file = "";
 		
 	# check phenotype
 	my $ptype = "";
@@ -218,25 +218,26 @@ for my $i (0..$#phenotypes){
 		# either check inputs abeforehand or run LMM each time
 		
 		if ($rlmm == 0){
-			$lmm_file = "$p_out/lmm"; 
-			push(@args, "--save-lmm $lmm_file"); 
-			push(@args, "--similarity $sim");  
+			$m_file = "$p_out/mds"; 
+			push(@args, "--save-m $m_file"); 
+			push(@args, "--distances $tree");  
 		}else{
-			if ( $lmm_file eq "" ){ 
-				$lmm_file = "$p_out/lmm"; 
-				push(@args, "--save-lmm $lmm_file"); 
-				push(@args, "--similarity $sim");  
+			if ( $m_file eq "" ){ 
+				$m_file = "$p_out/lmm"; 
+				push(@args, "--save-m $m_file"); 
+				push(@args, "--distances $tree");  
 			}else{
-				push(@args, "--load-lmm $lmm_file.npz");	
+				push(@args, "--load-m $m_file.pkl");	
 			}
 		}
+		
 		push(@args, "--print-samples") if $print_samples == 1;
 		
 		# make argument line
 		my $args_in = join(" ", @args);
 	
 		# command line
-		my $command = "pyseer $com $file --phenotypes $phenotype --phenotype-column $p --lmm --output-patterns $p_out/$f.patterns.txt --cpu $cpus $args_in > $p_out/$f.results.tsv 2>>$p_out/$f.seer_log.txt";
+		my $command = "pyseer $com $file --phenotypes $phenotype --phenotype-column $p --output-patterns $p_out/$f.patterns.txt --cpu $cpus $args_in > $p_out/$f.results.tsv 2>>$p_out/$f.seer_log.txt";
 		`echo $command > $p_out/$f.seer_log.txt`; 
 		
 		# run pyseer
@@ -297,4 +298,3 @@ for my $i (0..$#phenotypes){
 
 # feedback
 print "\n - completed\n\n";
-

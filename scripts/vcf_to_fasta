@@ -69,7 +69,9 @@ if ($list ne ''){
 		my $line = $_;
 		chomp $line;
 		
-		$list {$line} = 1;
+		my @vars = split(/\t/, $line, -1);
+		
+		$list {$vars[0]} = 1;
 		
 	}close LIST;
 	
@@ -89,9 +91,6 @@ my @headers = ();
 my @include = ();
 
 my @storage_var = ();
-
-# open output file
-open OUTPUT, ">$output.temp" or die " - ERROR: could not open output file\n";
 
 # find maximum size of variants
 print " - calculating maximum number of positions\n";
@@ -125,6 +124,7 @@ while(<VCF>){
 			
 			for my $t ( 9..$#headers ){ 
 				if ($list{$headers[$t]}){
+					$list {$headers[$t]} = 2;
 					push(@include, $t);
 				}
 			}
@@ -139,6 +139,14 @@ while(<VCF>){
 		for my $ar_idx ( 0..$#include ){ 				
 			$storage_var[$ar_idx] = $temp_string;
 		}
+		
+		# list missing samples
+		my @missing_samples = ();
+		for ( keys %list ){
+			push(@missing_samples, $_) if $list{$_} == 1;
+		}
+		print "missing samples:\n" if scalar(@missing_samples) > 0;
+		print sprintf("%s\n", join("\n", @missing_samples)) if scalar(@missing_samples) > 0;
 		
 		# feedback
 		$no_samples = @include; 
@@ -258,7 +266,6 @@ while(<VCF>){
 	#last if ($no_sites == 1000);	
 			
 }close VCF;
-close OUTPUT;
 
 # feedback
 print "\r - $no_sites variant sites processed - $no_inc_sites included in output.\n";

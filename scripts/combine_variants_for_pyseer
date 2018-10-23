@@ -1,0 +1,250 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings qw(all);
+
+use Getopt::Long qw(GetOptions :config no_ignore_case);
+use Pod::Usage;
+use File::Basename;
+
+# combine variants for pyseer
+
+=head1  SYNOPSIS
+
+	combine_variants_for_pyseer
+	
+ Input variants:
+ --vcf		one of more vcf files [required] 
+ --pres		one or more presence_absence files [required] 
+ --output 	output directory [required] 
+ 
+ General options:
+ --suffix-vcf	suffix for vcf variants in order of input files,
+		comma delimited [default: off]
+ --suffix-pres	suffix for p-a variants in order of input files,
+ 		comma delimited [default: off]
+
+ -h|--help 	usage information
+  
+=cut
+
+# command line options
+my @vcf = ();
+my @pres = ();
+my $output = '';
+my $list= "";
+
+my $suf_pres = "";
+my $suf_vcf = "";
+
+my $help = 0;
+
+pod2usage(1) if scalar(@ARGV) == 0;
+GetOptions(
+
+	'vcf=s'	=> \@vcf,
+	'pres=s'	=> \@pres,
+	
+	'output=s' => \$output,
+	'samples=s' => \$list,
+	
+	'suffix-pres=s' => \$suf_pres,
+	'suffix-vcf=s' => \$suf_vcf,
+	
+	'help|?' 	=> \$help,
+
+) or die pod2usage(1);
+pod2usage(1) if $help;
+
+# create prefix list for files
+my @s_vcf = ();
+if($suf_vcf ne ""){
+	@s_vcf = split(/,/, $suf_vcf);
+	die " - number of suffixes does not match input vcf files\n" if scalar(@s_vcf) != scalar(@vcf); 
+}
+my @s_pres = ();
+if($suf_pres ne ""){
+	@s_pres = split(/,/, $suf_pres);
+	die " - number of suffixes does not match input presence/absence files\n" if scalar(@s_pres) != scalar(@pres); 
+}
+
+# create sample list
+my %inc = ();
+
+open META, "$list" or die " - ERROR: could not open list file ($list)\n"; 
+while(<META>){
+	
+	my $line = $_;
+	chomp $line;
+	
+	my @vars = split(/\t/, $line, -1);
+	
+	$inc{$vars[0]} = 1;
+	
+}close META;
+my $s_count = keys %inc;
+print "\n - $s_count samples in metadata file\n\n";
+
+# make ordered sample variable
+my @samples = sort (keys(%inc));
+my %s_order = ();
+my $c = 0;
+for (@samples) {
+	$s_order{$_} = ++$c;
+};
+
+# open output
+open OUT, ">$output" or die " - ERROR: could ot open output file\n";
+print OUT "variant\t".join("\t", @samples)."\n";
+
+# total variants
+my $t_var = 0;
+
+# parse vcf files
+print "\n------------------------------\n\n - vcf files:\n\n";
+for my $fi (0..$#vcf){
+	
+	my $f = $vcf[$fi];
+	
+	my @headers = 0;
+	my @print = ();
+	
+	my $v_count = 0;
+	
+	open FILE, $f or die " - ERROR: could not open $f\n";
+	while(<FILE>){
+		
+		my $line = $_;
+		chomp $line;
+		
+		my @vars = split(/\t/, $line, -1);
+		
+		# headers
+		if ( /##/ ){
+
+		}elsif ( /#/ ){
+			
+			# parse headers and store order
+			my $h_count = 0;
+			for my $i (9..$#vars){
+				if ( $s_order{$vars[$i]} ){
+					my $idx = $s_order{$vars[$i]} + 8; # vcf columns starts at 9 - zero indexing (s_order starts at 1)
+					push( @print, $idx );
+				}
+			}
+			
+			# number of found samples
+			my $n_samples = scalar(@print);
+			print " - $n_samples/$s_count samples found in $f\n";
+			
+			
+		}else{
+		
+			++$v_count;
+		
+			# make variant label for SNP
+			my $var = sprintf("%i\_%s\_%s", $vars[1], $vars[3], $vars[4]);
+			
+			# add suffix [optional]
+			$var = "$var\-$s_vcf[$fi]" if ( $suf_vcf ne "" );
+
+			# print ordered values
+			my @out_line = ($var);
+			for (@print){ 
+			
+				# sanity check
+				die "  ERROR: $vars[$_] is not a binary value" unless ( ($vars[$_] == 1) || ($vars[$_] == 0) );
+				
+				# add to output variable
+				push(@out_line, $vars[$_]);
+			}
+			
+			# print to file
+			print OUT join("\t", @out_line)."\n";
+			
+		}
+		
+	}
+	close FILE;
+	
+	# feedback
+	print " - $v_count variants printed to file\n";
+	$t_var = $t_var + $v_count; 
+
+}
+
+# parse presence-absence files
+print "\n------------------------------\n\n - presence-absence files:\n\n";
+for my $fi (0..$#pres){
+	
+	my $f = $pres[$fi];
+	
+	my @headers = 0;
+	my @print = ();
+	my $count = 0;
+	my $v_count = 0;
+	
+	open FILE, $f or die " - ERROR: could not open $f\n";
+	while(<FILE>){
+		
+		++$count;
+		
+		my $line = $_;
+		chomp $line;
+		
+		my @vars = split(/\t/, $line, -1);
+		
+		# headers
+		if ( $count == 1 ){
+			
+			# parse headers and store order
+			my $h_count = 0;
+			for my $i (1..$#vars){
+				if ( $s_order{$vars[$i]} ){
+					my $idx = $s_order{$vars[$i]}; # pre/abs columns starts at 1 - zero indexing (s_order starts at 1) no offset
+					push( @print, $idx );
+				}
+			}
+			
+			# number of found samples
+			my $n_samples = scalar(@print);
+			print " - $n_samples/$s_count samples found in $f\n";
+			
+			
+		}else{
+		
+			$v_count++;
+		
+			# make variant label for SNP
+			my $var = sprintf("%s", $vars[0]);
+			
+			# add suffix [optional]
+			$var = "$var\-$s_pres[$fi]" if ( $suf_pres ne "" );
+
+			# print ordered values
+			my @out_line = ($var);
+			for (@print){ 
+			
+				# sanity check
+				die "  ERROR: $vars[$_] is not a binary value" unless ( ($vars[$_] == 1) || ($vars[$_] == 0) );
+				
+				# add to output variable
+				push(@out_line, $vars[$_]);
+			}
+			
+			# print to file
+			print OUT join("\t", @out_line)."\n";
+			
+		}
+		
+	}
+	close FILE;
+	
+	# feedback
+	print " - $v_count variants printed to file\n";
+	$t_var = $t_var + $v_count; 
+
+}
+
+# feedback
+print "\n------------------------------\n\n - $t_var total variants printed to $output\n\n------------------------------\n\n";
