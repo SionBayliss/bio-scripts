@@ -205,7 +205,7 @@ if ($vcf ne ""){
 
 	# convert fasta to sim-mat
 	print_log "\n - fasta to similarity matrix:\n\n";
-	system("$script_path/snp-sim $output/$prefix_vcf.filtered.$af.fasta -b > $output/$prefix_vcf.simmat 2>>$log"); 
+	system("$script_path/snp-sim $output/$prefix_vcf.filtered.$sm_af_low.fasta -b > $output/$prefix_vcf.$sm_af_low.simmat 2>>$log"); 
 	die " - ERROR: fasta to similarity matrix failed\n" if $?;
 	
 }
