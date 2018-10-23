@@ -17,7 +17,8 @@ use Cwd 'abs_path';
  Input variants:
  --scripts	path to PIRATE root installation [required] 
  --meta	metadata file [required] 
- --output 	output directory [required] 
+ --output 	output directory [required]
+ --af		minimum allelic frequency [required] 
  --pirate 	input PIRATE directory [optional]
  --vcf	input vcf file [optional]
  [required: either --vcf or --pirate]
@@ -29,6 +30,7 @@ use Cwd 'abs_path';
  
  VCF options:
  --prefix-vcf	set output filename prefix for vcf files [default: vcf]
+ --sim-af		min allelic frequency for variants used for similarity matrix [default: --af] 
  
  -h|--help 	usage information
   
@@ -45,6 +47,8 @@ my $path = "";
 my $phenotype = '';
 my $output = '';
 my $af = "";
+
+my $sm_af = ""; 
 
 my $core = "0.95"; 
 my $dosage = "1.2";
@@ -66,6 +70,7 @@ GetOptions(
 	'scripts=s' => \$path,
 	
 	'af=f' => \$af,
+	'sim-af=f' => \$sm_af,	
 	
 	'core=f' => \$core,
 	'dosage=f' => \$dosage,
@@ -94,6 +99,13 @@ my $pirate_path = abs_path($pir);
 die " - ERROR: allelic frequency must be between 0-1.\n" if ( ($af>1) && ($af<1) );
 my $af_low = $af;
 my $af_high = 1-$af;
+
+my $sm_af_low = $af;
+unless ( $sm_af eq "" ){
+	die " - ERROR: allelic frequency must be between 0-1.\n" if ( ($sm_af>1) && ($sm_af<1) );
+	$sm_af_low = $sm_af;
+}
+my $sm_af_high = 1-$sm_af_low;
 
 # make log file
 my $log = "$output/log.$af.txt";
@@ -185,7 +197,7 @@ if ($vcf ne ""){
 	
 	# convert vcf to fasta (filter sites)
 	print_log "\n - vcf to fasta:\n";
-	system("$script_path/vcf_to_fasta -i $vcf -o $output/$prefix_vcf.filtered.$af.fasta -fl $af_low -fh $af_high -l $s_list | tee -a $log"); 
+	system("$script_path/vcf_to_fasta -i $vcf -o $output/$prefix_vcf.filtered.$sm_af_low.fasta -fl $sm_af_low -fh $sm_af_high -l $s_list | tee -a $log"); 
 	die " - ERROR: vcf to fasta failed\n" if $?;
 
 	# convert fasta to sim-mat
