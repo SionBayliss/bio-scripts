@@ -95,6 +95,9 @@ die " - ERROR: must specify allelic frequency with --af\n" if $af eq "";
 my $script_path = abs_path(dirname($0));
 my $pirate_path = abs_path($pir);
 
+# check output directory exists or can be created
+unless( -d $output ){ unless ( mkdir $output ) { die " - ERROR: could not create output directory ($output)\n" } };
+
 # set thresholds
 die " - ERROR: allelic frequency must be between 0-1.\n" if ( ($af>1) && ($af<1) );
 my $af_low = $af;
