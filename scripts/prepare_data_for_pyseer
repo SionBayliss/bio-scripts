@@ -36,7 +36,6 @@ use Cwd 'abs_path';
   
 =cut
 
-
 # make command line 
 my $commandline = $0 . " ". (join " ", @ARGV);
 
@@ -82,7 +81,6 @@ GetOptions(
 
 ) or die pod2usage(1);
 pod2usage(1) if $help;
-
 
 # check options
 die " - ERROR: must specify phenotype file with --metadata\n" if $phenotype eq "";
