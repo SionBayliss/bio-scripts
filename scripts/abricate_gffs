@@ -11,8 +11,16 @@ use Cwd 'abs_path';
 =head1
 
 
-	abricate_gffs
+	abricate_gffs -i /path/to/gff_directory/ -o /path/to/output_directory/
+	
+	-i 	path to input directory containing gffs
+	-l	single column txt file of samples to include 
+	-a 	arguements for abricate
+	-o 	output directory
+	-p 	output summary prefix
 
+	-h	help
+	
 =cut
 
 # switch off buffering 

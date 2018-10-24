@@ -24,6 +24,8 @@ use Pod::Usage;
  -n|--n-sites	include n-sites [default: exclude]
  -s|--store-inv	store alleles that are the inverse of another [default:off] 
  -l|--list 		list of samples to include [default: off]
+ --freq-inv		frequency threshold to be considered inverse allele [default: 0.98]
+ --store-inv	include inverse alleles in output [default: off]	
 			
  General:
  -h|--help		usage information
@@ -43,6 +45,8 @@ my $ns = 0;
 my $list = '';
 my $store_inv = 0;
 
+my $inv_thresh = 0.98;
+
 my $help = 0; 
 
 GetOptions(
@@ -55,14 +59,19 @@ GetOptions(
 	'fl|freq-low=f' => \$l_threshold,
 	'fh|freq-high=f' => \$h_threshold,
 	
+	'freq-inv=f' => \$inv_thresh,
+	
 	'ns' => \$ns,
-	'store_inv' => \$store_inv,
+	'store-inv' => \$store_inv,
 	'list=s' => \$list,
 	
 ) or pod2usage(1);
 pod2usage(1) if $help;
 pod2usage( {-message => q{input vcf is a required arguement}, -exitval => 1, -verbose => 1 } ) if $vcf eq ''; 
 pod2usage( {-message => q{output file is a required arguement}, -exitval => 1, -verbose => 1 } ) if $output eq ''; 
+
+# check inverse threshold
+die " - inverse allele frequency threshold (--freq-inv) should be a number betwen 0-1.\n" if ( ($inv_thresh < 0) || ($inv_thresh>1));
 
 # feedback - settings
 print "\nSettings:\n";
@@ -76,6 +85,7 @@ if ($store_inv == 1){
 }else{
 	print " - excluding inverse_alleles in output.\n";
 } 
+print " - inverse allele frequency = $inv_thresh\n";
 print "\nRunning:\n";
 
 # [optional] open list file
@@ -250,7 +260,7 @@ while(<VCF>){
 		 
 		# check not two inverse allelles across all samples. 
 		my $is_inverse = 0;
-		if ( ($no_vars_stored == 2) && ($total_count == $no_samples) ){
+		if ( ($no_vars_stored == 2) && ($total_count >= ( $no_samples * $inv_thresh ) ) ){
 			$is_inverse = 1;
 			++$inverse;
 		}

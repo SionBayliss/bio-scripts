@@ -31,6 +31,7 @@ use Cwd 'abs_path';
  VCF options:
  --prefix-vcf	set output filename prefix for vcf files [default: vcf]
  --sim-af		min allelic frequency for variants used for similarity matrix [default: --af] 
+ --inv-freq		total frequency of two alleles to be considered inverse alleles [default: 0.98]
  
  -h|--help 	usage information
   
@@ -54,6 +55,7 @@ my $dosage = "1.2";
 my $family_low = "0.5";
 
 my $prefix_vcf = "vcf"; 
+my $inv_freq = 0.98;
 
 my $help = 0;
 
@@ -76,6 +78,7 @@ GetOptions(
 	'family-low=f' => \$family_low,
 	
 	'prefix-vcf=s' => \$prefix_vcf,
+	'inv-freq=f' => \$inv_freq,
 	
 	'help|?' 	=> \$help,
 
@@ -142,7 +145,7 @@ sub print_log{
 	open LOG, ">>$log" or die " - ERROR: could not open log file\n";
 	print LOG $val;
 	close LOG;
-} 
+}  
 
 # process PIRATE files
 if ($pir ne ""){
@@ -193,7 +196,7 @@ if ($vcf ne ""){
 	
 	# expand vcf  - filter low freq variants (dataset dependent)
 	print_log "\n - expand vcf:\n";
-	system("$script_path/expand_vcf -i $vcf -o $output/$prefix_vcf.expanded.$af.vcf -fl $af_low -fh $af_high -l $s_list | tee -a $log"); 
+	system("$script_path/expand_vcf -i $vcf -o $output/$prefix_vcf.expanded.$af.vcf -fl $af_low -fh $af_high -l $s_list --freq-inv $inv_freq | tee -a $log"); 
 	die " - ERROR: expand vcf failed\n" if $?;
 	
 	# convert vcf to fasta (filter sites)
@@ -219,5 +222,4 @@ die " - ERROR: combining outputs failed\n" if $?;
 
 # feedback
 print_log " - complete\n\n";
-
 
