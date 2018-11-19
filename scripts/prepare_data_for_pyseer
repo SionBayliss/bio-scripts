@@ -185,12 +185,12 @@ if ($pir ne ""){
 	
 	# duplications
 	print_log "\n - duplications:\n\n";
-	system("$conv_path/paralogs_to_Rtab.pl -i $pirate_path/PIRATE.unique_alleles.tsv -o $output/duplications.$af.tsv --low $af_low --high $af_high -b -t d -s $s_list | tee -a $log");
+	system("$conv_path/paralogs_to_Rtab.pl -i $pirate_path/PIRATE.unique_alleles.tsv -o $output/duplications.$af.tsv --freq-low $af_low --freq-high $af_high -b -t d -s $s_list | tee -a $log");
 	die " - ERROR: duplications failed\n" if $?;
 	
 	# ff
 	print_log "\n - fission fusion:\n\n";
-	system("$conv_path/paralogs_to_Rtab.pl -i $pirate_path/PIRATE.unique_alleles.tsv -o $output/fissions.$af.tsv --low $af_low --high $af_high -b -t ff -s $s_list | tee -a $log");
+	system("$conv_path/paralogs_to_Rtab.pl -i $pirate_path/PIRATE.unique_alleles.tsv -o $output/fissions.$af.tsv --freq-low $af_low --freq-high $af_high -b -t ff -s $s_list | tee -a $log");
 	die " - ERROR: fission fusion failed\n" if $?;
 	
 	# optionally add prefix to all output headers 
