@@ -56,6 +56,7 @@ my $family_low = "0.5";
 
 my $prefix_vcf = "vcf"; 
 my $inv_freq = 0.98;
+my $add_prefix = "";
 
 my $help = 0;
 
@@ -79,6 +80,7 @@ GetOptions(
 	
 	'prefix-vcf=s' => \$prefix_vcf,
 	'inv-freq=f' => \$inv_freq,
+	'add-prefix=s' => \$add_prefix,
 	
 	'help|?' 	=> \$help,
 
@@ -115,10 +117,12 @@ my $sm_af_high = 1-$sm_af_low;
 my $log = "$output/log.$af.txt";
 system("echo $commandline > $log");
 
-# create sample list
+# create sample list and optionally amended metadata.
 my $s_list = "$output/sample_list.$af.txt";
+my $m_list = "$output/sample_phenotype.modified_names.txt";
 open META, "$phenotype" or die " - ERROR: could not open phenotype file ($phenotype)\n"; 
 open SLIST, ">$s_list" or die " - ERROR: could not write to $s_list\n"; 
+open METAA, ">$m_list" or die " - ERROR: could not write to $m_list\n" unless ($add_prefix eq "");
 my $s_count = 0;
 my $count = 0;
 while(<META>){
@@ -132,6 +136,7 @@ while(<META>){
 	if ($count > 1){
 		print SLIST "$vars[0]\n";
 		++$s_count;
+		print METAA sprintf("%s%s\n", $add_prefix, join("\t", @vars)) unless ($add_prefix eq "");
 	}
 	
 }close SLIST;
@@ -183,6 +188,45 @@ if ($pir ne ""){
 	print_log "\n - fission fusion:\n\n";
 	system("$conv_path/paralogs_to_Rtab.pl -i $pirate_path/PIRATE.unique_alleles.tsv -o $output/fissions.$af.tsv --low $af_low --high $af_high -b -t ff -s $s_list | tee -a $log");
 	die " - ERROR: fission fusion failed\n" if $?;
+	
+	# optionally add prefix to all output headers 
+	unless ($add_prefix eq ""){
+	
+		my @files = ("$output/core_alleles.$af.tsv", "$output/accessory_pa.$af.tsv", "$output/accessory_alleles.$af.tsv","$output/duplications.$af.tsv", "$output/fissions.$af.tsv");
+		
+		for my $f (@files){
+		
+			# open modified files
+			open F, $f or die " - ERROR: could not open $f\n";
+			open FM, ">$f.mod" or die " - ERROR: could not open $f\n";
+			
+			my $c = 0; 
+			while (<F>){
+			
+				++$c;
+				
+				my $line = $_;
+				chomp $line;
+				
+				# amend headers
+				if ($c == 1){
+				
+					my @vars = split("\t", $line, -1);
+					for ( 1..$#vars ) { $vars[$_] = "$add_prefix$vars[$_]"};
+					
+					print FM  join("\t", @vars)."\n";
+					
+				}else{
+					print FM "$line\n";
+				}
+			}
+			close FM;
+			close F;
+			
+			# replace original
+			`mv $f.mod $f`;			
+		}
+	}
 
 }
 
@@ -199,10 +243,72 @@ if ($vcf ne ""){
 	system("$script_path/expand_vcf -i $vcf -o $output/$prefix_vcf.expanded.$af.vcf -fl $af_low -fh $af_high -l $s_list --freq-inv $inv_freq | tee -a $log"); 
 	die " - ERROR: expand vcf failed\n" if $?;
 	
+	# optionally add prefix to output headers 
+	unless ($add_prefix eq ""){
+			
+		# open modified files
+		my $f  = "$output/$prefix_vcf.expanded.$af.vcf";
+		open F, $f or die " - ERROR: could not open $f\n";
+		open FM, ">$f.mod" or die " - ERROR: could not open $f\n";
+		
+		my $c = 0; 
+		while (<F>){
+		
+			++$c unless ( $_ =~ /^\#\#/ );
+			
+			my $line = $_;
+			chomp $line;
+			
+			# amend headers
+			if ($c == 1){
+				my @vars = split("\t", $line, -1);
+				
+				for ( 9..$#vars ) { $vars[$_] = "$add_prefix$vars[$_]"};
+				print FM  join("\t", @vars)."\n";
+			}else{
+				print FM "$line\n";
+			}
+		}
+		close FM;
+		close F;
+		
+		# replace original
+		`mv $f.mod $f`;		
+
+	}
+	
 	# convert vcf to fasta (filter sites)
 	print_log "\n - vcf to fasta:\n";
 	system("$script_path/vcf_to_fasta -i $vcf -o $output/$prefix_vcf.filtered.$sm_af_low.fasta -fl $sm_af_low -fh $sm_af_high -l $s_list | tee -a $log"); 
 	die " - ERROR: vcf to fasta failed\n" if $?;
+	
+	# optionally add prefix to output headers 
+	unless ($add_prefix eq ""){
+			
+		# open modified files
+		my $f  = "$output/$prefix_vcf.filtered.$sm_af_low.fasta";
+		open F, $f or die " - ERROR: could not open $f\n";
+		open FM, ">$f.mod" or die " - ERROR: could not open $f\n";
+		
+		while (<F>){
+		
+			my $line = $_;
+			chomp $line;
+			
+			# amend headers
+			if (/^>(.+)/){
+				print FM ">$add_prefix$1\n";
+			}else{
+				print FM "$line\n";
+			}
+		}
+		close FM;
+		close F;
+		
+		# replace original
+		`mv $f.mod $f`;		
+
+	}
 
 	# convert fasta to sim-mat
 	print_log "\n - fasta to similarity matrix:\n\n";
@@ -217,7 +323,9 @@ system("mv $log.temp $log");
 
 # make combined output
 print_log "\n - combining outputs...\n\n";
-system("$script_path/combine_variants_for_pyseer -v $output/$prefix_vcf.expanded.$af.vcf -p $output/core_alleles.$af.tsv -p $output/accessory_pa.$af.tsv -p $output/accessory_alleles.$af.tsv -p $output/duplications.$af.tsv -p $output/fissions.$af.tsv --suffix-pres \"c,a,aa,d,ff\" --samples $s_list -o $output/combined_variants.$af.tab | tee -a $log"); 
+my $inlist = $s_list;
+$inlist = $m_list unless $add_prefix eq "";
+system("$script_path/combine_variants_for_pyseer -v $output/$prefix_vcf.expanded.$af.vcf -p $output/core_alleles.$af.tsv -p $output/accessory_pa.$af.tsv -p $output/accessory_alleles.$af.tsv -p $output/duplications.$af.tsv -p $output/fissions.$af.tsv --suffix-pres \"c,a,aa,d,ff\" --samples $inlist -o $output/combined_variants.$af.tab | tee -a $log"); 
 die " - ERROR: combining outputs failed\n" if $?;
 
 # feedback

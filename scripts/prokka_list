@@ -1,0 +1,217 @@
+#!/usr/bin/env perl
+
+# run prokka on list of isolates.
+
+use strict;
+use warnings;
+use Getopt::Long qw(GetOptions);
+use Pod::Usage qw(pod2usage);
+use Cwd 'abs_path';
+
+# variables
+my $list = "";
+my $file_path = "";
+my $prokka_args = "";
+my $suffix = "";
+my $output_dir = "";
+my $keep = ""; 
+my $threads = 2;
+my $help = 0;
+
+my $verbose;
+GetOptions ("list=s" => \$list,    
+            "path=s"   => \$file_path,
+            "args=s"   => \$prokka_args,
+            "output=s"   => \$output_dir,   
+            "suffix=s"   => \$suffix,
+            "files=s"   => \$keep,
+            "threads=i" => \$threads,
+            "help|?"     =>  \$help,
+);
+
+# Check required inputs
+pod2usage(1) if $help;
+pod2usage(1) unless $file_path;
+pod2usage(1) unless $list;
+pod2usage(1) unless $output_dir;
+pod2usage(1) unless $suffix;
+
+# make absolute path to directories
+$file_path = abs_path($file_path);
+unless( -d $output_dir ){
+	die " - ERROR: could not make $output_dir\n" unless mkdir $output_dir; 
+}
+$output_dir = abs_path($output_dir);
+
+# check for files to keep
+my @files_to_keep = ();
+unless ($keep){
+	$keep = ".gff .gbk";
+	@files_to_keep = (".gff", ".gbk");
+}else{
+	@files_to_keep = split(/,/, $keep);
+	for (@files_to_keep){ die "$_ not file format produced by prokka.\n" if $_ !~ /\.gbk|\.gff|\.faa|\.err|\.ffn|\.fna|\.fsa|\.log|\.tbl|\.sqn|\.txt|\.tsv/ }
+}
+
+# check for prokka args edit appropriately.
+$prokka_args = "--compliant" unless $prokka_args; 
+$prokka_args =~ s/--outdir\s+\S+//g;
+$prokka_args =~ s/--prefix\s+\S+//g;
+$prokka_args =~ s/--locustag\s+\S+//g;
+$prokka_args =~ s/--strain\s+\S+//g;
+
+# feedback 
+print "\nInputs/Defaults:\n - file list: $list\n - fasta directory: $file_path\n - output directory: $output_dir\n - file suffix: $suffix\n - prokka arguements: $prokka_args\n - files to keep: $keep\n - threads: $threads\n\n";
+
+# parse file list and make file for parallel]
+print " - checking that all files are present in $file_path\n";
+my @samples = ();
+my $error = 0;
+open LIST, "$list" or die $!;
+while(<LIST>){
+
+	my $line = $_;
+	chomp $line;
+	
+	if($line=~/(\S+)/){
+	
+		# check for presence of file.
+		unless (-f sprintf("%s/%s.%s", $file_path, $1, $suffix) ){
+			$error = 1;
+			print "No file for sample ", sprintf("%s/%s.%s", $file_path, $1, $suffix), "\n";
+		}else{
+			push(@samples, $1);
+		}
+	}
+}close LIST;
+
+# sanity check
+die "Files not found (see above).\n" if $error == 1;
+
+# rename contigs - numerically increasing
+print " - standardising fasta files\n";
+my $unquote = q(\">\");
+my $command = qq(parallel -a $list -j $threads \'awk \"{if(/^>/){ print $unquote++i; next }{print} }\" < $file_path/{}.$suffix > $output_dir/{}.fas\' 2>>/dev/null);
+system($command);
+
+# Check files are present and make list 
+my @samples2 = ();
+my $error2 = 0;
+for my $i (@samples){
+	unless (-f "$output_dir/$i.fas" ){
+		print "no fasta in $output_dir for $i\n";
+		$error2 = 1;
+	}else{
+		push(@samples2, $i);
+	}
+}
+die "Files not found in $output_dir (see above).\n" if $error2 == 1;
+
+# make list file for all samples 
+@samples = @samples2;
+
+open LIST_PROKKA, ">$output_dir/prokka_list.txt" or die $!;
+for my $j (@samples){
+	print LIST_PROKKA "$j\n";
+}close LIST_PROKKA;
+
+# run prokka on all samples
+print " - running prokka on all files in parallel\n";
+my $prokka = qq( parallel -a $output_dir/prokka_list.txt -j $threads \"prokka $prokka_args --cpus 1 --force --outdir $output_dir/{} --prefix {} --locustag {} --strain {} $output_dir/{}.fas\" 2>>/dev/null);
+system($prokka);
+
+# Check files are present and make list of processed and missing isolates;
+print " - moving files to output directories\n";
+my @missing_files = ();
+for my $suf (@files_to_keep){
+
+	my @missing_files = ();
+	
+	# make output directory
+	my $suff_dir = $suf;
+	$suff_dir =~ s/\.//g;
+	mkdir "$output_dir/$suff_dir";
+	
+	# check
+	die "could not find $output_dir/$suff_dir" unless -d ("$output_dir/$suff_dir");
+	
+	# move file to appropriate output directory unless missing
+	for my $k (@samples){
+	
+		my $file_loc = "$output_dir/$k/$k$suf";
+		
+		if ( -f $file_loc ){
+			`cp $file_loc $output_dir/$suff_dir/$k$suf`;
+		}else{
+			push(@missing_files, $k);
+		}	
+		
+	}
+	
+	# print file of missing samples;
+	my $no_missing = scalar(@missing_files); 
+	if ($no_missing > 0){
+	
+		my $err_file = "$output_dir/missing$suf";
+		open TEMP_OUT, ">$err_file" or die $!;
+		for (@missing_files) { print TEMP_OUT "$_\n" }
+		close TEMP_OUT;
+		
+		# feedback 
+		print " - WARNING: $no_missing $suf files failed to be created - list printed to $err_file\n";
+		
+	}
+}
+
+
+# delete unwanted files.
+print " - deleting unwanted files\n";
+for my $k (@samples){
+
+	unlink "$output_dir/$k.fas";
+	
+	unlink "$output_dir/$k/$k.gff";
+	unlink "$output_dir/$k/$k.gbk";
+	unlink "$output_dir/$k/$k.gff";
+	unlink "$output_dir/$k/$k.faa";
+	unlink "$output_dir/$k/$k.err";
+	unlink "$output_dir/$k/$k.ffn";
+	unlink "$output_dir/$k/$k.fna";
+	unlink "$output_dir/$k/$k.fsa";
+	unlink "$output_dir/$k/$k.log";
+	unlink "$output_dir/$k/$k.tbl";
+	unlink "$output_dir/$k/$k.sqn";
+	unlink "$output_dir/$k/$k.txt";
+	unlink "$output_dir/$k/$k.tsv";
+	
+	rmdir "$output_dir/$k";
+	
+}
+unlink "$output_dir/prokka_list.txt";
+
+print " - completed\n\n";	
+   
+__END__
+
+=head1 NAME
+
+perl ProkkaList.pl -l /path/to/list_of_sample_names -p /path/to/fasta_directory -s ".fasta_suffix" -o /path/to/output_directory
+
+=head1 SYNOPSIS
+
+	-l|--list 	list of sample names to process, does not contain path or suffix [required]
+	-p|--path	path to directory containging all fasta files [required]
+	-o|--output	output directory [required]
+	-s|--suffix	expected fasta suffix [required]
+	-a|--args	arguements to be passed to prokka [default: none]
+	-f|--files	file types to keep [default = (".gff",".gbk")]
+	-t|--threads	number of threads for parallelisation [default: 2]
+	-h|--help	print this message
+	
+=head1 VERSION
+
+0.01
+
+=cut
+
+

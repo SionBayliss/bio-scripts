@@ -45,14 +45,14 @@ if(length(outgroups$V1)>1){
 }else{
   
   # single - root on outgroup
-  rooted.tree <- root(tree, outgroups$V1[1], resolve.root = TRUE)
+  rooted.tree <- root(tree, as.character(outgroups$V1[1]), resolve.root = TRUE)
 
 }
 
 # optional: remove outgroups
 if(length(args)>3){
-  rooted.tree <- drop.tip(rooted.tree, tree$tip.label[tree$tip.label %in% outgroups$V1] )
+  rooted.tree <- drop.tip(rooted.tree, tree$tip.label[tree$tip.label %in% outgroups$V1], trim.internal = TRUE, rooted=1)
 }
 
 # write tree
-write.tree(rooted.tree , file = out_file)
+ape::write.tree(rooted.tree , file = out_file)
