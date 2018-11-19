@@ -53,8 +53,8 @@ my $af = "";
 my $sm_af = ""; 
 
 my $core = "0.95"; 
-my $dosage = "1.2";
-my $family_low = "0.5";
+my $dosage = "1.1";
+my $family_low = "0.05";
 
 my $prefix_vcf = "vcf"; 
 my $inv_freq = 0.98;

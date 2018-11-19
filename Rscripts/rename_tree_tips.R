@@ -12,9 +12,6 @@ tree_file <- args[1]
 outgroup_file <- args[2]
 out_file <- args[3]
 
-#tree_file <- "/home/sbayliss/Desktop/projects/Bayliss_Neisseria/phylogeny/CC23/CFML/embranch_masked.rooted_on_outgroup.contam_removed.tre"
-#outgroup_file <- "/home/sbayliss/Desktop/projects/Bayliss_Neisseria/phylogeny/CC23/CFML/CC23_samples_rename.txt"
-
 # read tree
 tree <- read.tree(tree_file)
 
