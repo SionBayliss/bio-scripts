@@ -121,9 +121,11 @@ system("echo $commandline > $log");
 
 # create sample list and optionally amended metadata.
 my $s_list = "$output/sample_list.$af.txt";
+my $sm_list = "$output/sample_list.$af.modified.txt";
 my $m_list = "$output/sample_phenotype.modified_names.txt";
 open META, "$phenotype" or die " - ERROR: could not open phenotype file ($phenotype)\n"; 
 open SLIST, ">$s_list" or die " - ERROR: could not write to $s_list\n"; 
+open SMLIST, ">$sm_list" or die " - ERROR: could not write to $sm_list\n"; 
 open METAA, ">$m_list" or die " - ERROR: could not write to $m_list\n" unless ($add_prefix eq "");
 my $s_count = 0;
 my $count = 0;
@@ -136,11 +138,15 @@ while(<META>){
 	my @vars = split(/\t/, $line, -1);
 	
 	if ($count > 1){
-		print SLIST "$vars[0]\n";
+	
 		++$s_count;
-		print METAA sprintf("%s%s\n", $add_prefix, join("\t", @vars)) unless ($add_prefix eq "");
+		
+		print SLIST "$vars[0]\n"; # original sample list
+		print METAA sprintf("%s%s\n", $add_prefix, join("\t", @vars)) unless ($add_prefix eq "");  # modified metadata for pyseer
+		print SMLIST sprintf("%s%s\n", $add_prefix, $vars[0]) unless ($add_prefix eq ""); # modified list for concatenation
+		
 	}else{
-		print METAA "$line\n" unless ($add_prefix eq "");
+		print METAA "$line\n" unless ($add_prefix eq "");  # headers for pyseer (modified file)
 	}
 	
 }close SLIST;
@@ -328,7 +334,7 @@ system("mv $log.temp $log");
 # make combined output
 print_log "\n - combining outputs...\n\n";
 my $inlist = $s_list;
-$inlist = $m_list unless $add_prefix eq "";
+$inlist = $sm_list unless $add_prefix eq "";
 system("$script_path/combine_variants_for_pyseer -v $output/$prefix_vcf.expanded.$af.vcf -p $output/core_alleles.$af.tsv -p $output/accessory_pa.$af.tsv -p $output/accessory_alleles.$af.tsv -p $output/duplications.$af.tsv -p $output/fissions.$af.tsv --suffix-pres \"c,a,aa,d,ff\" --samples $inlist -o $output/combined_variants.$af.tab | tee -a $log"); 
 die " - ERROR: combining outputs failed\n" if $?;
 
