@@ -26,6 +26,7 @@ use File::Basename;
  Pyseer Options:
  --min-af	frequency to exclude minor allele [default: 0.01]
  --max-af	frequency to exclude major allele [default: 0.01]
+ --max-dim	max dimensions for pyseer [default: auto]
  
  Output:
  --output 	output directory [required] 
@@ -57,6 +58,7 @@ my $print_samples = 0;
 
 my $min_af = 0.01;
 my $max_af = 0.99;
+my $max_dim = "";
 
 my $rlmm = 0;
 my $no_qq = 0;
@@ -78,8 +80,9 @@ GetOptions(
 	
 	'prints' => \$print_samples,
 	
-	'min-af' => \$min_af,
-	'max-af' => \$max_af,
+	'min-af=f' => \$min_af,
+	'max-af=f' => \$max_af,
+	'max-dim=i' => \$max_dim,
 	
 	'r-lmm'	=> \$rlmm,
 	'no-qq'	=> \$no_qq,
@@ -225,13 +228,14 @@ for my $i (0..$#phenotypes){
 			if ( $m_file eq "" ){ 
 				$m_file = "$p_out/lmm"; 
 				push(@args, "--save-m $m_file"); 
-				push(@args, "--distances $tree");  
+				push(@args, "--distances $tree"); 
 			}else{
 				push(@args, "--load-m $m_file.pkl");	
 			}
 		}
 		
 		push(@args, "--print-samples") if $print_samples == 1;
+		push(@args, "--max-dimensions $max_dim") if $max_dim ne "";
 		
 		# make argument line
 		my $args_in = join(" ", @args);

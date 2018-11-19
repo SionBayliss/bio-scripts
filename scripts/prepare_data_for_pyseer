@@ -33,6 +33,8 @@ use Cwd 'abs_path';
  --sim-af		min allelic frequency for variants used for similarity matrix [default: --af] 
  --inv-freq		total frequency of two alleles to be considered inverse alleles [default: 0.98]
  
+ General options:
+ --add-prefix	add prefix to pyseer inputs [default: off]
  -h|--help 	usage information
   
 =cut
@@ -137,6 +139,8 @@ while(<META>){
 		print SLIST "$vars[0]\n";
 		++$s_count;
 		print METAA sprintf("%s%s\n", $add_prefix, join("\t", @vars)) unless ($add_prefix eq "");
+	}else{
+		print METAA "$line\n" unless ($add_prefix eq "");
 	}
 	
 }close SLIST;
