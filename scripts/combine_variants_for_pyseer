@@ -17,6 +17,7 @@ use File::Basename;
  --vcf		one of more vcf files [required] 
  --pres		one or more presence_absence files [required] 
  --output 	output directory [required] 
+ --list	sample list [required]
  
  General options:
  --suffix-vcf	suffix for vcf variants in order of input files,
@@ -46,7 +47,7 @@ GetOptions(
 	'pres=s'	=> \@pres,
 	
 	'output=s' => \$output,
-	'samples=s' => \$list,
+	'list=s' => \$list,
 	
 	'suffix-pres=s' => \$suf_pres,
 	'suffix-vcf=s' => \$suf_vcf,
@@ -60,12 +61,12 @@ pod2usage(1) if $help;
 my @s_vcf = ();
 if($suf_vcf ne ""){
 	@s_vcf = split(/,/, $suf_vcf);
-	die " - number of suffixes does not match input vcf files\n" if scalar(@s_vcf) != scalar(@vcf); 
+	die " - number of suffixes does not match number of input vcf files\n" if scalar(@s_vcf) != scalar(@vcf); 
 }
 my @s_pres = ();
 if($suf_pres ne ""){
 	@s_pres = split(/,/, $suf_pres);
-	die " - number of suffixes does not match input presence/absence files\n" if scalar(@s_pres) != scalar(@pres); 
+	die " - number of suffixes does not match number of input presence/absence files\n" if scalar(@s_pres) != scalar(@pres); 
 }
 
 # create sample list

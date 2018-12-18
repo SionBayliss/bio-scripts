@@ -1,0 +1,246 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+use Getopt::Long qw(GetOptions :config no_ignore_case);
+use Pod::Usage;
+
+# convert snp_sites to allele namesannotate and add product information
+
+=head1  SYNOPSIS
+
+ annotate_gwas_hits -i /path/to/file -g /path/to/gff_file -o /path/to/output_file 
+
+ Input-Output:	
+ -i|--input		input pyseer_output file [required]
+ -g|--gff		gff file [required]
+ -o|--output	path to output file [required] 
+ -p|--pirate	pirate gene famililes file [required]
+ -c|--column	column containing snps to convert [default: 0] 
+ 
+ General:
+ -h|--help 		usage information
+ 
+=cut
+
+# option variables
+my $input = "";
+my $output = "";
+my $gff = "";
+my $column = 0;
+my $pirate = "";
+
+my $help = 0;
+
+GetOptions(
+
+	'help|?' 	=> \$help,
+	'input=s' 	=> \$input,
+	'gff=s' 	=> \$gff,
+	'column=i'	=> \$column,
+	'pirate=s' => \$pirate,
+	
+	'output=s'	=> \$output,
+	
+) or pod2usage(1);
+pod2usage(1) if $help == 1;
+ 
+# file check
+die " - ERROR: no input file specified" if $input eq "";
+die " - ERROR: no output file specified" if $output eq "";
+die " - ERROR: no gff file specified" if $gff eq "";
+#die " - ERROR: no pirate file specified" if $pirate eq "";
+
+# [optional] parse pirate file
+my %gene_info = ();
+my %product_info = ();
+if ($pirate ne ""){
+
+	open PIR, $pirate or die " - ERROR: could not open pirate file - $pirate\n";
+	while (<PIR>){
+	
+		my $line  = $_;
+		chomp $line;
+	
+		my @vars = split(/\t/, $line);
+	
+		# FASTA section
+		unless (/^allele/){
+			
+			my $group = $vars[1];
+			my $gene = $vars[2];
+			my $product = $vars[3];
+			
+			$product_info{$group} = $product;
+			$gene_info{$group} = $gene;
+			
+		}
+	}close PIR;
+
+}
+
+# parse GFF
+my %pos = ();
+my @features = ();
+my $f_count = 0; 
+my %feature_info = ();
+open GFF, $gff or die " - ERROR: could not open GFF - $gff\n";
+while (<GFF>){
+	
+	my $line  = $_;
+	chomp $line;
+	
+	my @vars = split(/\t/, $line);
+	
+	# FASTA section
+	if (/^##FASTA/){
+		last;
+	}
+	# header
+	elsif(/^#/){
+		
+	}else{
+		
+		my $start = $vars[3];
+		my $end = $vars[4];
+		
+		my $id = "";
+		for my $i (split(/;/, $vars[8])){
+			if ($i =~ /^ID=(.+)/){
+				$id = $1;
+			}
+		}
+	
+		if ($id ne ""){
+			
+			# store feature index
+			push(@features, $id);
+			++$f_count;
+			
+			# store feature start/stop
+			$feature_info{$id} = $start;
+			 
+			# store position (+1);
+			for my $i ($start..$end) {
+				$pos {$i} = $f_count;
+			}
+					
+		}
+	
+	}
+	
+}close GFF;
+
+# open output file
+open OUT, ">$output" or die " - could not open output file ($output)\n";
+
+# identify SNP lines and replace with allele name - add original value to a note column
+my $count = 0;
+open IN, $input or die " - ERROR: could not open input file";
+while (<IN>){
+	
+	++$count;
+	
+	my $line = $_;
+	chomp $line;
+	
+	my @vars = split(/\t/, $line);
+	
+	# headers 
+	if ( $count == 1 ){
+	
+		my $header_line = sprintf( "%s\t%s\t%s\t%s\t%s\t%s\n", $vars[$column], "variant_type\tsnp_position\tgene_family\tallele_id", "gene_name", "product", "mutation_type", join("\t", @vars[1..$#vars]) );
+		print OUT $header_line;
+		
+	}else{
+	
+		# variables
+		my $var_type = "";
+		my $allele = "";
+		my $family = "";
+		my $pos_no = "";
+	
+		# fission-fusion
+		if ($vars[$column] =~/(.+)\-ff/){
+			$var_type = "fission_fusion";
+			$allele = $1;
+		}	
+		# duplication
+		elsif ($vars[$column] =~/(.+)\-d/){
+			$var_type = "duplication";
+			$allele = $1;
+		}
+		# accessory p-a
+		elsif ($vars[$column] =~/(.+)\-aa/){
+			$var_type = "accessory_allele";
+			$allele = $1;
+		}
+		# accessory allele
+		elsif ($vars[$column] =~/(.+)\-a/){
+			$var_type = "accessory_pa";
+			$allele = $1;
+		}
+		# core allele
+		elsif ($vars[$column] =~/(.+)\-c/){
+			$var_type = "core_allele";
+			$allele = $1;			
+		}
+		# snps
+		elsif ($vars[$column] =~/(\d+)_[ATCG]_[ATCG]/){
+		
+			$var_type = "snp";
+		
+			$pos_no = $1;
+			my $org = $vars[$column];
+		
+			# replace column value
+			die " - ERROR: no feature for position ($pos_no)\n" unless $pos{$pos_no};
+			my $replace_idx = $pos{$pos_no};
+			my $replace = $features[$replace_idx-1];
+			$allele = $replace;
+		
+		}
+	
+	
+		# identify gene family from allele number
+		#print "$allele\n";
+		if( $allele =~ /^(\S+\_\d+)\_\d+/ ){
+			$family = $1;	
+		}
+		elsif( $allele =~ /^\S+\_\d{1,3}$/ ){
+			$family = "$allele";
+		}
+		elsif( $allele =~ /^(\S+)\_\d+/ ){
+			$family = $1;
+		}
+		else{
+			$family = "$allele";
+		}
+		#print "$family\n";
+		
+		# [optional] identify gene and product information
+		my $gene = "";
+		my $product = "";
+		my $mut_type = "";
+		if ($pirate ne ""){		
+			$gene = $gene_info{$family};
+			$product = $product_info{$family};
+		}
+		
+		# find snp position in gene
+		my $snp_pos = "";
+		if ($var_type eq "snp" ){
+			
+			my $start = $feature_info{$family};
+			$snp_pos = $pos_no - $start + 1; # adjust start pos to 1	
+		}
+	
+		# print to file
+		my $outline = sprintf( "%s\t%s\t%s\t%s\t%s\t%s\n", $vars[$column], "$var_type\t$snp_pos\t$family\t$allele", $gene, $product, $mut_type, join("\t", @vars[1..$#vars]) );
+		print OUT $outline;
+	
+	}
+	
+
+}close IN;
+ 

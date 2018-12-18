@@ -1,0 +1,263 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+use Getopt::Long qw(GetOptions);
+use Pod::Usage;
+
+# expand patterns to variants list/vcf
+
+=head1  SYNOPSIS
+
+
+ patterns_to_variants -i /path/to/vcf_file -o /path/to/output_file
+
+ Input/Output:
+ -i|--input		input vcf/table [required]
+ -c|--conversion		input conversion file [required]
+ -o|--output		output vcf/table [required]
+
+ Filtering options:
+ --fl|freq-low		min snp frequency to include in output 
+			[default: 0.00]
+ --fh|freq-high		max snp frequency to include in output 
+			[default: 1.00]
+ -l|--list 		list of samples to include [default: off]
+			
+ General:
+ -h|--help		usage information
+ 
+=cut
+
+# switch buffer off 
+$| = 1;
+
+# variables
+my $input = "";
+my $output = "";
+my $conversion = "";
+
+my $l_threshold = 0.00;
+my $h_threshold = 1;
+my $list = '';
+
+my $help = 0; 
+
+GetOptions(
+
+	'help|?' 	=> \$help,
+	
+	'input=s' 	=> \$input,
+	'conversion=s' => \$conversion,
+	'output=s'	=> \$output,	
+	
+	'fl|freq-low=f' => \$l_threshold,
+	'fh|freq-high=f' => \$h_threshold,
+
+	'list=s' => \$list,
+
+	
+) or pod2usage(1);
+pod2usage(1) if $help;
+pod2usage( {-message => q{input vcf/table is a required arguement}, -exitval => 1, -verbose => 1 } ) if $input eq ''; 
+pod2usage( {-message => q{output file is a required arguement}, -exitval => 1, -verbose => 1 } ) if $output eq ''; 
+pod2usage( {-message => q{input conversion file is a required arguement}, -exitval => 1, -verbose => 1 } ) if $conversion eq ''; 
+
+# [optional] open list file
+my %list  = (); 
+my $no_samples_list;
+if ($list ne ''){
+	open LIST, $list or die " - ERROR: could not open list ($list)\n";
+	while (<LIST>){
+	
+		my $line = $_;
+		chomp $line;
+		
+		my @vars = split(/\t/, $line, -1);
+		
+		$list {$vars[0]} = 1 unless $vars[0] eq "id";
+		
+	}close LIST;
+	
+	# feedback
+	$no_samples_list = keys(%list); 
+	print " - $no_samples_list samples to include from list file.\n";
+}
+
+# check input file format
+my $vcf = 0;
+$vcf = 1 if ( $input =~ /\.vcf$/);
+
+# index column for presence absence 
+my $ind = 1;
+$ind = 9 if $vcf == 1;
+
+# parse patterns file
+my %patterns = ();
+open PAT, $conversion or die " - ERROR: could not open list ($conversion)\n";
+while (<PAT>){
+
+	my $line = $_;
+	chomp $line;
+	
+	my @vars = split(/\t/, $line, -1);
+	
+	$patterns {$vars[0]} = $vars[3];  
+	
+}close LIST;
+
+# open output file
+open OUTPUT, ">$output" or die " - ERROR: could not open output file.\n";
+
+# parse input file
+my $no_patterns = 0;
+my $no_variants = 0;
+my $filtered = 0;
+
+my @headers = ();
+my $no_samples = 0;
+my @include = ();
+
+my $line_count = 0;
+open INPUT, $input or die " - ERROR: input file did not open.\n";
+while(<INPUT>){
+	
+	$line_count++;
+	
+	my $l = $_;
+	chomp $l;
+	
+	my @line = split(/\t/, $l, -1);
+	
+	# store headers
+	if( ((/^#CHROM\tPOS/) && ($vcf == 1)) || ( ($line_count == 1) && ($vcf == 0))  ){	
+				
+		@headers = @line;
+				
+		# check for samples in list 
+		if ($list ne ''){
+			
+			for my $t ( $ind..$#headers ){ 
+				if ($list{$headers[$t]}){
+					push(@include, $t);
+					$list {$headers[$t]} = 2;
+				}
+			}
+		
+		}else{
+			
+			for my $t ( $ind..$#headers ){ push(@include, $t) }; 	
+		
+		}
+		
+		# list missing samples
+		my @missing_samples = ();
+		for ( keys %list ){
+			push(@missing_samples, $_) if $list{$_} == 1;
+		}
+		print "missing samples:\n" if scalar(@missing_samples) > 0;
+		print sprintf("%s\n", join("\n", @missing_samples)) if scalar(@missing_samples) > 0;
+		
+		# print reduced header
+		my $headerline = "";
+		if ($vcf == 1){
+			$headerline = join("\t", @headers[0..8], @headers[@include]);
+		}else{
+			$headerline = join("\t", "id", @headers[@include]);
+		}
+		print OUTPUT "$headerline\n";
+		
+		# feedback
+		$no_samples = @include; 
+		if($list ne ""){
+			print " - $no_samples samples of $no_samples_list found in vcf headers.\n";
+		}else{
+			print " - $no_samples samples found in vcf headers.\n";
+		}
+		print " - 0 patterns processed.";
+		
+	}
+	elsif(/^#/){
+		print OUTPUT "$l\n";
+	}elsif(/^\S+\t/){
+	
+		$no_patterns++;	
+		
+		# sanity check
+		die " - ERROR: No samples found in header line.\n" if $no_samples == 0;
+
+		# count samples
+		my $s_count = 0;
+		my @out_vars = ();
+		for (@include){
+			$s_count++ if $line[$_] == 1;
+			push(@out_vars, $line[$_]);
+		}
+	
+		# proportion of isolates pattern is found in
+		my $freq = $s_count/$no_samples;
+	
+		# store variant/pattern if it is between frequency thresholds
+		if ( ( $freq <= $h_threshold ) && ( $freq >= $l_threshold ) ){
+	
+			# find matching pattern 
+			my $pattern_id = $line[0];
+			$pattern_id = $line[1] if $vcf == 1;
+			
+			# find matching variants 
+			my @variants = split(/,/, $patterns{$pattern_id});
+			
+			# print info for each variant
+			for my $v (@variants){
+				
+				++$no_variants;
+
+				# make variant info for vcf file
+				my @outline = ();
+				if ($vcf == 1){
+		
+					# variables
+					my @ph = (0) x 9;
+					my @v = split(/_/, $v, -1);
+					
+					$ph[0] = $v[0];
+					$ph[1] = $v[1];
+					$ph[3] = $v[2];
+					$ph[4] = $v[03];
+					
+					push(@outline, @ph);
+										
+				}
+				# make table info
+				else{
+					push(@outline, $v);
+				}
+			
+				# print line
+				print OUTPUT join("\t", @outline, @out_vars)."\n" ;
+			}
+	
+		}else{
+			$filtered++;
+		}
+		
+		# feedback
+		if ( $no_patterns%1000 == 0 ){
+			print "\r - $no_patterns patterns processed.";
+		}
+		
+	}
+			
+}
+close INPUT;
+print "\r - $no_patterns patterns processed.\n";
+
+# feedback
+my $per_filt = sprintf("%.3f", ($filtered/$no_patterns) * 100);
+my $inc = ($no_patterns-$filtered);
+my $per_inc = sprintf("%.3f", ($inc/$no_patterns) * 100);
+print " - $no_patterns patterns in file.\n";
+print " - $inc/$no_patterns ($per_inc) patterns included in output file.\n";
+print " - $filtered/$no_patterns ($per_filt\%) patterns filtered ($l_threshold-$h_threshold)\n";
+print " - $no_variants variants printed to output file.\n";
+

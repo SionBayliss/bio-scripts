@@ -1,0 +1,199 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+use Getopt::Long qw(GetOptions :config no_ignore_case);
+use Pod::Usage;
+
+use File::Basename;
+use Cwd 'abs_path';
+
+# convert snp_sites to allele names
+
+=head1  SYNOPSIS
+
+ annotate_gwas_wrapper -i /path/to/file -g /path/to/gff_file -o /path/to/output_file 
+
+ Input-Output:	
+ --input		input pyseer result directory [required]
+ --output	path to output file [required]
+ --prefix	file prefix before *.results.tsv [default: 1]
+ --pirate	pirate gene famililes file for product annnotation [optional]
+ --gff		gff file [required]
+ --all	do not filter on best hit per feature/type [default: off]
+ 
+ General:
+ -h|--help 		usage information
+ 
+=cut
+
+# option variables
+my $input = "";
+my $output = "";
+my $prefix = "1";
+my $gff = ""; 
+my $pirate = "";
+my $inc = 0;
+
+my $help = 0;
+
+GetOptions(
+
+	'help|?' 	=> \$help,
+	'input=s' 	=> \$input,	
+	'output=s'	=> \$output,
+	'prefix=s'	=> \$prefix,
+	'gff=s' 	=> \$gff,
+	'pirate=s' => \$pirate,
+	'all' => \$inc,
+	
+) or pod2usage(1);
+pod2usage(1) if $help == 1;
+ 
+# file check
+die " - ERROR: no input directory specified" if $input eq "";
+die " - ERROR: no output file specified" if $output eq "";
+die " - ERROR: no gff file specified" if $gff eq "";
+
+# scripts path
+my $script_path = abs_path(dirname($0));
+
+# find all directories
+my @dirs = ();
+opendir( my $DIR, $input );
+while ( my $entry = readdir $DIR ) {
+
+	if( ( -d "$input/$entry" ) && !( ($entry eq '.') || ($entry eq '..') ) ){
+		push(@dirs, "$entry");
+	}
+	
+}
+closedir $DIR;
+
+# run annotate_gwas_hits 
+print " - annotating output files\n";
+for my $d (@dirs){
+	
+	my $f = sprintf("%s/%s/%s.results.tsv", $input, $d, $prefix);
+	if ( -f $f ){
+	
+		print " - processing $d..\n";
+		
+		# output file
+		my $fo = sprintf("%s/%s/%s.results.annotated.tsv", $input, $d, $prefix);
+		
+		my $args = "";
+		$args = "--pirate $pirate" if $pirate ne "";
+		
+		system("$script_path/annotate_gwas_hits -i $f -g $gff -o $fo $args");
+		die " - ERROR: annotate_gwas_hits failed\n" if $?;
+		
+	}else{
+		print " - WARNING: could not find $prefix.results.tsv in $input/$d/\n";
+	}
+}
+
+
+# open output file
+open OUT, ">$output" or die " - could not open output file ($output)\n";
+
+# combine files
+my $f_count = 0;
+my %var_store = ();
+print " - combining files for output\n";
+for my $d (@dirs){
+	
+	my $f = sprintf("%s/%s/%s.results.annotated.tsv", $input, $d, $prefix);
+	if ( -f $f ){
+	
+		++$f_count;
+		
+		print " - processing $d..\n";
+		
+		my $count = 0;
+		open F, $f or die "$!";
+		while(<F>){
+		
+			++$count;
+			my $line = $_;
+			chomp $line;
+			
+			my @vars = split("\t", $line, -1);
+			
+			my $id = $vars[0];
+			my $var_type = $vars[1];
+			my $family = $vars[3];
+			my $lrt = $vars[10]; 
+			
+			# print and append phenotype to the first header of the first file
+			if ($count == 1 && $f_count ==1 ){
+				print OUT sprintf( "%s\t%s\t%s\n", $vars[0], "phenotype", join("\t", @vars[1..$#vars]) );
+			}elsif($count == 1){
+				# ignore additional headers
+			}
+			# print info lines
+			else{
+			
+				# print 
+				print OUT sprintf( "%s\t%s\t%s\n", $vars[0], $d, join("\t", @vars[1..$#vars]) );
+				
+				# store minimum hit per family-variant_type-metadata 
+				if( $var_store{$var_type}{$family}{$d}{"min"} ){
+					
+					if( $var_store{$var_type}{$family}{$d}{"min"} > $lrt ){
+						$var_store{$var_type}{$family}{$d}{"min"} = $lrt;
+						$var_store{$var_type}{$family}{$d}{"val"} = $id;
+					}
+					
+				}else{
+					$var_store{$var_type}{$family}{$d}{"min"} = $lrt;
+					$var_store{$var_type}{$family}{$d}{"val"} = $id;
+				}
+
+			}
+			
+		}close F;
+		
+		
+	}else{
+		print " - WARNING: could not find $prefix.results.annotated.tsv in $input/$d/\n";
+	}
+}close OUT;
+
+# filter combined file on metadata/gene_family/variant_type
+print " - filtering combined file on minimum hit per unique phenotype/gene_family/variant_type\n";
+
+# find lowest ids
+my %store_ids = ();
+for my $k1 (keys %var_store ){
+	for my $k2 (keys %{$var_store{$k1}} ){
+		for my $k3 (keys %{$var_store{$k1}{$k2}} ){
+			$store_ids{ $var_store{$k1}{$k2}{$k3}{"val"} } = 1;
+		}
+	}
+}
+
+# open output file
+open OUTF, ">$output.filtered" or die " - could not open output file ($output)\n";
+
+# filter file on ids
+my $count_f = 0;
+open F, $output or die "$!";
+while(<F>){
+		
+	++$count_f;
+	my $line = $_;
+	chomp $line;
+	
+	my @vars = split("\t", $line, -1);
+	
+	if ($inc == 1){
+		print OUTF "$line\n";
+	}elsif ( ($count_f == 1) || ($store_ids{$vars[0]}) ){
+		print OUTF "$line\n"; 
+	}
+		
+}close F;
+
+print " - complete\n";
+		
