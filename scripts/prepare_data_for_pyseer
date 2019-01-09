@@ -20,6 +20,7 @@ use Cwd 'abs_path';
  --output 	output directory [required]
  --af		minimum allelic frequency [required] 
  --pirate 	input PIRATE directory [optional]
+ --piggy 	input piggy directory [optional]
  --vcf	input vcf file [optional]
  [required: either --vcf or --pirate]
  
@@ -45,6 +46,7 @@ my $commandline = $0 . " ". (join " ", @ARGV);
 # command line options
 my $vcf = "";
 my $pir = "";
+my $pig = "";
 my $path = "";
 my $phenotype = '';
 my $output = '';
@@ -68,6 +70,7 @@ GetOptions(
 
 	'vcf=s'	=> \$vcf,
 	'pirate=s'	=> \$pir,
+	'piggy=s'	=> \$pig,
 	
 	'metadata=s' => \$phenotype,
 	'output=s' => \$output,
@@ -99,6 +102,7 @@ die " - ERROR: must specify allelic frequency with --af\n" if $af eq "";
 # find path of bio-scripts 
 my $script_path = abs_path(dirname($0));
 my $pirate_path = abs_path($pir);
+my $piggy_path = abs_path($pig);
 
 # check output directory exists or can be created
 unless( -d $output ){ unless ( mkdir $output ) { die " - ERROR: could not create output directory ($output)\n" } };
@@ -162,6 +166,25 @@ sub print_log{
 	close LOG;
 }  
 
+# files to prefix
+my @files = ();
+
+# process piggy files
+if ($pig ne ""){
+
+	print_log "\n -------------------------- \n\n - Processing piggy:\n\n";
+
+	# check for scripts/files in path
+	die " - ERROR: could not find $script_path/piggy_to_Rtab.pl" unless ( -f  "$script_path/piggy_to_Rtab.pl");
+	
+	# presence absence
+	system("$script_path/piggy_to_Rtab.pl -i $piggy_path/IGR_presence_absence.csv -o $output/piggy_pe.$af.tsv --low $af_low --high $af_high -d $dosage -s $s_list | tee -a $log");
+	die " - ERROR: core alleles failed\n" if $?;
+	
+	push(@files, "$output/piggy_pe.$af.tsv");
+	
+}
+
 # process PIRATE files
 if ($pir ne ""){
 
@@ -199,46 +222,48 @@ if ($pir ne ""){
 	system("$conv_path/paralogs_to_Rtab.pl -i $pirate_path/PIRATE.unique_alleles.tsv -o $output/fissions.$af.tsv --freq-low $af_low --freq-high $af_high -b -t ff -s $s_list | tee -a $log");
 	die " - ERROR: fission fusion failed\n" if $?;
 	
-	# optionally add prefix to all output headers 
-	unless ($add_prefix eq ""){
+	my @add_files = ("$output/core_alleles.$af.tsv", "$output/accessory_pa.$af.tsv", "$output/accessory_alleles.$af.tsv","$output/duplications.$af.tsv", "$output/fissions.$af.tsv");
+	push (@files, @add_files);
 	
-		my @files = ("$output/core_alleles.$af.tsv", "$output/accessory_pa.$af.tsv", "$output/accessory_alleles.$af.tsv","$output/duplications.$af.tsv", "$output/fissions.$af.tsv");
-		
-		for my $f (@files){
-		
-			# open modified files
-			open F, $f or die " - ERROR: could not open $f\n";
-			open FM, ">$f.mod" or die " - ERROR: could not open $f\n";
-			
-			my $c = 0; 
-			while (<F>){
-			
-				++$c;
-				
-				my $line = $_;
-				chomp $line;
-				
-				# amend headers
-				if ($c == 1){
-				
-					my @vars = split("\t", $line, -1);
-					for ( 1..$#vars ) { $vars[$_] = "$add_prefix$vars[$_]"};
-					
-					print FM  join("\t", @vars)."\n";
-					
-				}else{
-					print FM "$line\n";
-				}
-			}
-			close FM;
-			close F;
-			
-			# replace original
-			`mv $f.mod $f`;			
-		}
-	}
-
 }
+
+# optionally add prefix to all output headers 
+unless ($add_prefix eq ""){
+
+	for my $f (@files){
+	
+		# open modified files
+		open F, $f or die " - ERROR: could not open $f\n";
+		open FM, ">$f.mod" or die " - ERROR: could not open $f\n";
+		
+		my $c = 0; 
+		while (<F>){
+		
+			++$c;
+			
+			my $line = $_;
+			chomp $line;
+			
+			# amend headers
+			if ($c == 1){
+			
+				my @vars = split("\t", $line, -1);
+				for ( 1..$#vars ) { $vars[$_] = "$add_prefix$vars[$_]"};
+				
+				print FM  join("\t", @vars)."\n";
+				
+			}else{
+				print FM "$line\n";
+			}
+		}
+		close FM;
+		close F;
+		
+		# replace original
+		`mv $f.mod $f`;			
+	}
+}
+
 
 # process vcf file
 if ($vcf ne ""){
@@ -335,7 +360,7 @@ system("mv $log.temp $log");
 print_log "\n - combining outputs...\n\n";
 my $inlist = $s_list;
 $inlist = $sm_list unless $add_prefix eq "";
-system("$script_path/combine_variants_for_pyseer -v $output/$prefix_vcf.expanded.$af.vcf -p $output/core_alleles.$af.tsv -p $output/accessory_pa.$af.tsv -p $output/accessory_alleles.$af.tsv -p $output/duplications.$af.tsv -p $output/fissions.$af.tsv --suffix-pres \"c,a,aa,d,ff\" --samples $inlist -o $output/combined_variants.$af.tab | tee -a $log"); 
+system("$script_path/combine_variants_for_pyseer -v $output/$prefix_vcf.expanded.$af.vcf -p $output/core_alleles.$af.tsv -p $output/accessory_pa.$af.tsv -p $output/accessory_alleles.$af.tsv -p $output/duplications.$af.tsv -p $output/fissions.$af.tsv -p $output/piggy_pe.$af.tsv --suffix-pres \"c,a,aa,d,ff,igr\" --list $inlist -o $output/combined_variants.$af.tab | tee -a $log"); 
 die " - ERROR: combining outputs failed\n" if $?;
 
 # feedback
