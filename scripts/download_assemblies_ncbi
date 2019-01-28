@@ -60,7 +60,7 @@ GetOptions(
 pod2usage(1) if $help;
 
 # check dependencies
-die " - ERROR: input assembly_summary_refseq.txt not specified\n" if $input eq "";
+
 die " - ERROR: output directory not specified\n" if $output_dir eq "";
 
 # make output directory
@@ -68,8 +68,19 @@ unless( -d $output_dir ){
 	die " - ERROR: could not make $output_dir\n" unless mkdir $output_dir; 
 }
 
+# downloading ftp genome summary
+if ($input eq "") {
+
+	print " - input assembly_summary_refseq.txt not specified, downloading current list...\n"; 
+	`wget -O - ftp://ftp.ncbi.nlm.nih.gov/genomes/ASSEMBLY_REPORTS/assembly_summary_refseq.txt 2>/dev/null > $output_dir/assembly_summary_refseq.txt`;
+	
+	$input = "$output_dir/assembly_summary_refseq.txt";
+		
+	die " - could not download ftp assembly summary.\n" if $?;
+}
+
 # feedback
-print " - Downloading of isolates is disabled, only creating summary.\n" if $no_download == 1;
+print " - Downloading of isolates is disabled, only creating summary\n" if $no_download == 1;
 
 # open output file
 open SUM, ">$output_dir/summary.tab" or die " - ERROR: output summary ($output_dir/summary.tab) did not open.\n";
@@ -77,7 +88,7 @@ open SUM, ">$output_dir/summary.tab" or die " - ERROR: output summary ($output_d
 # parse input file - store relevant info
 my $count = 0;
 print " - 0 samples downloaded";
-open IN, $input or die " - ERROR: input file did not open.\n";
+open IN, $input or die " - ERROR: input file did not open\n";
 while(<IN>){
 	
 	my $line = $_;
