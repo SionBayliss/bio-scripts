@@ -28,6 +28,9 @@ use Pod::Usage;
  			[default: 0]	
 			
  General options:
+ -p|--prefix	prefix for output file [default: IGR_alignment]
+ -e|--exclude-off include a sequence from isolates which contain multiple sequences
+ 			for a single IGR (default: exclude and replace with dashes)
  -h|--help		usage information
  
 =cut
@@ -43,6 +46,8 @@ my $dosage_threshold = 0;
 
 my $include_family = 0;
 my $list = "";
+my $exclude = 1; 
+my $prefix = "IGR_alignment";
 
 my $help = 0;
 
@@ -55,6 +60,8 @@ GetOptions(
 	'high=f' => \$h_threshold,
 	'dosage=f' => \$dosage_threshold,
 	'samples=s' => \$list,
+	'exclude-off' => $exclude,
+	'prefix=s'	=> \$prefix,
 	
 ) or pod2usage(1);
 pod2usage(1) if $help;
@@ -212,6 +219,8 @@ foreach my $cluster(@cluster_array){
 	my @cluster_id_array=();
 	my $isolate="";
 	
+	my %seq_count = ();
+	
 	open INPUT, "$input/cluster_intergenic_alignment_files/${cluster}_aligned.fasta" or die "Input file doesn't exist: $input/cluster_intergenic_alignment_files/${cluster}_aligned.fasta\n";
 	while(my $line=<INPUT>){
 	
@@ -226,6 +235,10 @@ foreach my $cluster(@cluster_array){
 			my $seq = uc($line);
 			$seq =~ s/-/N/g;
 			
+			# increment sequence count per isolate
+			$seq_count{$isolate}++;
+			
+			# store sequence
 			$cluster_seq_hash{$isolate}=$seq;
 			
 			my $len_new=length($seq);
@@ -243,11 +256,21 @@ foreach my $cluster(@cluster_array){
 	
 	foreach $isolate(@samples){
 		open OUTPUT_TMP, ">>$output/isolate_core_IGR_tmp/$isolate.fasta" or die "Cannot open output file: $output/isolate_core_IGR_tmp/$isolate.fasta\n";
+		
+		# no sequence (Ns)
 		if(!$cluster_seq_hash{$isolate}){
+			for(my $i=0; $i<$len; $i++){
+				print OUTPUT_TMP "N";
+			}
+		}
+		# [optional] exclude sequence due to copy no. > 1 (-s)
+		elsif( ($seq_count{$isolate} > 1) && ($exclude == 1) ){ 
 			for(my $i=0; $i<$len; $i++){
 				print OUTPUT_TMP "-";
 			}
-		}else{
+		}
+		# otherwise print
+		else{
 			print OUTPUT_TMP "$cluster_seq_hash{$isolate}";
 		}
 	}
@@ -265,7 +288,7 @@ foreach my $isolate(@samples){
 close OUTPUT_TMP;
 
 # make gff
-open GFF, ">$output/IGR_alignment.$l_threshold-$h_threshold.gff" or die "Cannot open output file: $output/IGR_alignment.$l_threshold-$h_threshold.gff\n";
+open GFF, ">$output/$prefix.$l_threshold-$h_threshold.gff" or die "Cannot open output file: $output/$prefix.$l_threshold-$h_threshold.gff\n";
 
 # headers 
 print GFF "##gff-version 3\n##sequence-region piggy 1 $alignment_length\n";
@@ -291,7 +314,7 @@ close GFF;
 print " - IGR GFF3 created.\n";
 
 # open output alignmnet.
-open OUTPUT, ">$output/IGR_alignment.$l_threshold-$h_threshold.fasta" or die "Cannot open output file: $output/IGR_alignment.$l_threshold-$h_threshold.fasta\n";
+open OUTPUT, ">$output/$prefix.$l_threshold-$h_threshold.fasta" or die "Cannot open output file: $output/$prefix.$l_threshold-$h_threshold.fasta\n";
 foreach my $isolate(@samples){
 	open INPUT, "$output/isolate_core_IGR_tmp/$isolate.fasta" or die "Input file doesn't exist: $output/isolate_core_IGR_tmp/$isolate.fasta\n";
 	while(my $line=<INPUT>){

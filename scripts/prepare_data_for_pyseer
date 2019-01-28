@@ -22,6 +22,7 @@ use Cwd 'abs_path';
  --pirate 	input PIRATE directory [optional]
  --piggy 	input piggy directory [optional]
  --vcf	input vcf file [optional]
+ --vcf-igr  input intergenic vcf file [optional]
  [required: either --vcf or --pirate]
  
  PIRATE options:
@@ -30,6 +31,7 @@ use Cwd 'abs_path';
  --family-low	lower bounds threshold for including accessory genes [default: 0.05]
  
  VCF options:
+ --n-sites		include Ns in vcf files [default: off]
  --prefix-vcf	set output filename prefix for vcf files [default: vcf]
  --sim-af		min allelic frequency for variants used for similarity matrix [default: --af] 
  --inv-freq		total frequency of two alleles to be considered inverse alleles [default: 0.98]
@@ -45,6 +47,7 @@ my $commandline = $0 . " ". (join " ", @ARGV);
 
 # command line options
 my $vcf = "";
+my $piggy_vcf = "";
 my $pir = "";
 my $pig = "";
 my $path = "";
@@ -59,8 +62,11 @@ my $dosage = "1.1";
 my $family_low = "0.05";
 
 my $prefix_vcf = "vcf"; 
+my $prefix_igr_vcf = "igr_vcf"; 
 my $inv_freq = 0.98;
 my $add_prefix = "";
+
+my $n_sites = 0;
 
 my $help = 0;
 
@@ -69,6 +75,7 @@ pod2usage(1) if scalar(@ARGV) == 0;
 GetOptions(
 
 	'vcf=s'	=> \$vcf,
+	'vcf-igr=s'	=> \$piggy_vcf,
 	'pirate=s'	=> \$pir,
 	'piggy=s'	=> \$pig,
 	
@@ -83,6 +90,7 @@ GetOptions(
 	'dosage=f' => \$dosage,
 	'family-low=f' => \$family_low,
 	
+	'n-sites' => \$n_sites,
 	'prefix-vcf=s' => \$prefix_vcf,
 	'inv-freq=f' => \$inv_freq,
 	'add-prefix=s' => \$add_prefix,
@@ -264,6 +272,9 @@ unless ($add_prefix eq ""){
 	}
 }
 
+# expand vcf args 
+my $exp_args = "";
+$exp_args = "--n-sites" if $n_sites == 1;
 
 # process vcf file
 if ($vcf ne ""){
@@ -275,7 +286,7 @@ if ($vcf ne ""){
 	
 	# expand vcf  - filter low freq variants (dataset dependent)
 	print_log "\n - expand vcf:\n";
-	system("$script_path/expand_vcf -i $vcf -o $output/$prefix_vcf.expanded.$af.vcf -fl $af_low -fh $af_high -l $s_list --freq-inv $inv_freq | tee -a $log"); 
+	system("$script_path/expand_vcf -i $vcf -o $output/$prefix_vcf.expanded.$af.vcf -fl $af_low -fh $af_high -l $s_list --freq-inv $inv_freq $exp_args | tee -a $log"); 
 	die " - ERROR: expand vcf failed\n" if $?;
 	
 	# optionally add prefix to output headers 
@@ -352,6 +363,93 @@ if ($vcf ne ""){
 	
 }
 
+# process vcf file
+if ($piggy_vcf ne ""){
+
+	print_log "\n -------------------------- \n\n - Processing intergenic VCF:\n";
+	
+	# check for scripts/files in path
+	die " - ERROR: could not find $piggy_vcf" unless ( -f  "$piggy_vcf");
+	
+	# expand vcf  - filter low freq variants (dataset dependent)
+	print_log "\n - expand vcf:\n";
+	system("$script_path/expand_vcf -i $piggy_vcf -o $output/$prefix_igr_vcf.expanded.$af.vcf -fl $af_low -fh $af_high -l $s_list --freq-inv $inv_freq $exp_args | tee -a $log"); 
+	die " - ERROR: expand vcf failed\n" if $?;
+	
+	# optionally add prefix to output headers 
+	unless ($add_prefix eq ""){
+			
+		# open modified files
+		my $f  = "$output/$prefix_igr_vcf.expanded.$af.vcf";
+		open F, $f or die " - ERROR: could not open $f\n";
+		open FM, ">$f.mod" or die " - ERROR: could not open $f\n";
+		
+		my $c = 0; 
+		while (<F>){
+		
+			++$c unless ( $_ =~ /^\#\#/ );
+			
+			my $line = $_;
+			chomp $line;
+			
+			# amend headers
+			if ($c == 1){
+				my @vars = split("\t", $line, -1);
+				
+				for ( 9..$#vars ) { $vars[$_] = "$add_prefix$vars[$_]"};
+				print FM  join("\t", @vars)."\n";
+			}else{
+				print FM "$line\n";
+			}
+		}
+		close FM;
+		close F;
+		
+		# replace original
+		`mv $f.mod $f`;		
+
+	}
+	
+	# convert vcf to fasta (filter sites)
+	print_log "\n - vcf to fasta:\n";
+	system("$script_path/vcf_to_fasta -i $piggy_vcf -o $output/$prefix_igr_vcf.filtered.$sm_af_low.fasta -fl $sm_af_low -fh $sm_af_high -l $s_list | tee -a $log"); 
+	die " - ERROR: vcf to fasta failed\n" if $?;
+	
+	# optionally add prefix to output headers 
+	unless ($add_prefix eq ""){
+			
+		# open modified files
+		my $f  = "$output/$prefix_igr_vcf.filtered.$sm_af_low.fasta";
+		open F, $f or die " - ERROR: could not open $f\n";
+		open FM, ">$f.mod" or die " - ERROR: could not open $f\n";
+		
+		while (<F>){
+		
+			my $line = $_;
+			chomp $line;
+			
+			# amend headers
+			if (/^>(.+)/){
+				print FM ">$add_prefix$1\n";
+			}else{
+				print FM "$line\n";
+			}
+		}
+		close FM;
+		close F;
+		
+		# replace original
+		`mv $f.mod $f`;		
+
+	}
+
+	# convert fasta to sim-mat
+	print_log "\n - fasta to similarity matrix:\n\n";
+	system("$script_path/snp-sim $output/$prefix_igr_vcf.filtered.$sm_af_low.fasta -b > $output/$prefix_igr_vcf.$sm_af_low.simmat 2>>$log"); 
+	die " - ERROR: fasta to similarity matrix failed\n" if $?;
+	
+}
+
 # remove redundant lines from log file
 system("grep -v 'variant sites processed' < $log > $log.temp");
 system("mv $log.temp $log");
@@ -360,7 +458,7 @@ system("mv $log.temp $log");
 print_log "\n - combining outputs...\n\n";
 my $inlist = $s_list;
 $inlist = $sm_list unless $add_prefix eq "";
-system("$script_path/combine_variants_for_pyseer -v $output/$prefix_vcf.expanded.$af.vcf -p $output/core_alleles.$af.tsv -p $output/accessory_pa.$af.tsv -p $output/accessory_alleles.$af.tsv -p $output/duplications.$af.tsv -p $output/fissions.$af.tsv -p $output/piggy_pe.$af.tsv --suffix-pres \"c,a,aa,d,ff,igr\" --list $inlist -o $output/combined_variants.$af.tab | tee -a $log"); 
+system("$script_path/combine_variants_for_pyseer -v $output/$prefix_vcf.expanded.$af.vcf -v $output/$prefix_igr_vcf.expanded.$af.vcf -p $output/core_alleles.$af.tsv -p $output/accessory_pa.$af.tsv -p $output/accessory_alleles.$af.tsv -p $output/duplications.$af.tsv -p $output/fissions.$af.tsv -p $output/piggy_pe.$af.tsv --suffix-vcf \"core,igr\" --suffix-pres \"c,a,aa,d,ff,igr\" --list $inlist -o $output/combined_variants.$af.tab | tee -a $log"); 
 die " - ERROR: combining outputs failed\n" if $?;
 
 # feedback

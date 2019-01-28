@@ -104,6 +104,8 @@ my $t_var = 0;
 # parse vcf files
 print "\n------------------------------\n\n - vcf files:\n\n";
 for my $fi (0..$#vcf){
+
+	#print "$vcf[$fi] - $s_vcf[$fi]\n";
 	
 	my $f = $vcf[$fi];
 	

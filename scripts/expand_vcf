@@ -61,7 +61,7 @@ GetOptions(
 	
 	'freq-inv=f' => \$inv_thresh,
 	
-	'ns' => \$ns,
+	'n-sites' => \$ns,
 	'store-inv' => \$store_inv,
 	'list=s' => \$list,
 	

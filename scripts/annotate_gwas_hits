@@ -13,10 +13,11 @@ use Pod::Usage;
 
  Input-Output:	
  -i|--input		input pyseer_output file [required]
- -g|--gff		gff file [required]
  -o|--output	path to output file [required] 
  -p|--pirate	pirate gene famililes file [required]
  -c|--column	column containing snps to convert [default: 0] 
+ --gff-core		pirate gff file [optional]
+ --gff-igr		piggy gff file [optional]
  
  General:
  -h|--help 		usage information
@@ -27,6 +28,7 @@ use Pod::Usage;
 my $input = "";
 my $output = "";
 my $gff = "";
+my $gff_igr = "";
 my $column = 0;
 my $pirate = "";
 
@@ -36,7 +38,8 @@ GetOptions(
 
 	'help|?' 	=> \$help,
 	'input=s' 	=> \$input,
-	'gff=s' 	=> \$gff,
+	'gff-core=s' 	=> \$gff,
+	'gff-igr=s' 	=> \$gff_igr,
 	'column=i'	=> \$column,
 	'pirate=s' => \$pirate,
 	
@@ -79,7 +82,7 @@ if ($pirate ne ""){
 
 }
 
-# parse GFF
+# parse core GFF
 my %pos = ();
 my @features = ();
 my $f_count = 0; 
@@ -131,6 +134,59 @@ while (<GFF>){
 	
 }close GFF;
 
+
+# parse intergenic GFF
+my %pos_igr = ();
+my @features_igr = ();
+my $f_count_igr = 0; 
+my %feature_info_igr = ();
+open GFF_IGR, $gff_igr or die " - ERROR: could not open GFF - $gff_igr\n";
+while (<GFF_IGR>){
+	
+	my $line  = $_;
+	chomp $line;
+	
+	my @vars = split(/\t/, $line);
+	
+	# FASTA section
+	if (/^##FASTA/){
+		last;
+	}
+	# header
+	elsif(/^#/){
+		
+	}else{
+	
+		my $start = $vars[3];
+		my $end = $vars[4];
+		
+		my $id = "";
+		for my $i (split(/;/, $vars[8])){
+			if ($i =~ /^ID=(.+)/){
+				$id = $1;
+			}
+		}
+		
+		if ($id ne ""){
+			
+			# store feature index
+			push(@features_igr, $id);
+			++$f_count_igr;
+			
+			# store feature start/stop
+			$feature_info_igr{$id} = $start;
+			 
+			# store position (+1);
+			for my $i ($start..$end) {
+				$pos_igr {$i} = $f_count_igr;
+			}
+					
+		}
+	
+	}
+	
+}close GFF_IGR;
+
 # open output file
 open OUT, ">$output" or die " - could not open output file ($output)\n";
 
@@ -139,20 +195,25 @@ my $count = 0;
 open IN, $input or die " - ERROR: could not open input file";
 while (<IN>){
 	
-	++$count;
-	
 	my $line = $_;
 	chomp $line;
 	
 	my @vars = split(/\t/, $line);
 	
 	# headers 
-	if ( $count == 1 ){
+	if(/^#/){
+		print OUT "$line\n";
+	}
+	elsif ( $count == 0 ){
+	
+		++$count;
 	
 		my $header_line = sprintf( "%s\t%s\t%s\t%s\t%s\t%s\n", $vars[$column], "variant_type\tsnp_position\tgene_family\tallele_id", "gene_name", "product", "mutation_type", join("\t", @vars[1..$#vars]) );
 		print OUT $header_line;
 		
 	}else{
+	
+		++$count;
 	
 		# variables
 		my $var_type = "";
@@ -160,8 +221,46 @@ while (<IN>){
 		my $family = "";
 		my $pos_no = "";
 	
+		# core snps
+		if ( ($vars[$column] =~/(\d+)_[ATCGN]_[ATCGN]-core$/) || ($vars[$column] =~/(\d+)_[ATCG]_[ATCG]-$/) ){
+		
+			$var_type = "snp";
+		
+			$pos_no = $1;
+			my $org = $vars[$column];
+		
+			# replace column value
+			die " - ERROR: no feature for position ($pos_no)\n" unless $pos{$pos_no};
+			my $replace_idx = $pos{$pos_no};
+			my $replace = $features[$replace_idx-1];
+			$allele = $replace;
+		
+		}
+		# intergenic snps
+		elsif ( $vars[$column] =~/(\d+)_[ATCGN]_[ATCGN]-igr$/ ){
+		
+			$var_type = "igr_snp";
+		
+			$pos_no = $1;
+			my $org = $vars[$column];
+			
+			#print "$pos_no-$org\n";
+		
+			# replace column value
+			die " - ERROR: no feature for position ($pos_no)\n" if !($pos_igr{$pos_no});			
+			my $replace_idx = $pos_igr{$pos_no};
+			my $replace = $features_igr[$replace_idx-1];
+			$allele = $replace;
+		
+		}
+		# snp error
+		elsif ( $vars[$column] =~/(\d+)_[ATCGN]_[ATCGN]/ ){
+		
+			die " - WARNING: unrecognised SNP: $line\n";
+		
+		}
 		# fission-fusion
-		if ($vars[$column] =~/(.+)\-ff/){
+		elsif ($vars[$column] =~/(.+)\-ff/){
 			$var_type = "fission_fusion";
 			$allele = $1;
 		}	
@@ -185,36 +284,34 @@ while (<IN>){
 			$var_type = "core_allele";
 			$allele = $1;			
 		}
-		# snps
-		elsif ($vars[$column] =~/(\d+)_[ATCG]_[ATCG]/){
-		
-			$var_type = "snp";
-		
-			$pos_no = $1;
-			my $org = $vars[$column];
-		
-			# replace column value
-			die " - ERROR: no feature for position ($pos_no)\n" unless $pos{$pos_no};
-			my $replace_idx = $pos{$pos_no};
-			my $replace = $features[$replace_idx-1];
-			$allele = $replace;
-		
+		elsif ($vars[$column] =~/(.+)\-igr/){
+			$var_type = "intergenic_pa";
+			$allele = $1;			
 		}
-	
+		else{
+		
+			print $line; exit;
+		}
 	
 		# identify gene family from allele number
 		#print "$allele\n";
-		if( $allele =~ /^(\S+\_\d+)\_\d+/ ){
-			$family = $1;	
-		}
-		elsif( $allele =~ /^\S+\_\d{1,3}$/ ){
-			$family = "$allele";
-		}
-		elsif( $allele =~ /^(\S+)\_\d+/ ){
-			$family = $1;
-		}
-		else{
-			$family = "$allele";
+		if ( ($var_type ne "igr") && ($var_type ne "igr_snp") ){
+		
+			if( $allele =~ /^(\S+\_\d+)\_\d+/ ){
+				$family = $1;	
+			}
+			elsif( $allele =~ /^\S+\_\d{1,3}$/ ){
+				$family = "$allele";
+			}
+			elsif( $allele =~ /^(\S+)\_\d+/ ){
+				$family = $1;
+			}
+			else{
+				$family = "$allele";
+			}
+			
+		}else{
+			$family = $allele;
 		}
 		#print "$family\n";
 		
@@ -222,17 +319,24 @@ while (<IN>){
 		my $gene = "";
 		my $product = "";
 		my $mut_type = "";
-		if ($pirate ne ""){		
+		if ( ($pirate ne "") && ($var_type ne "intergenic_pa") && ($var_type ne "igr_snp")){
 			$gene = $gene_info{$family};
 			$product = $product_info{$family};
 		}
 		
 		# find snp position in gene
 		my $snp_pos = "";
-		if ($var_type eq "snp" ){
+		if ( $var_type eq "snp"  ){
 			
 			my $start = $feature_info{$family};
 			$snp_pos = $pos_no - $start + 1; # adjust start pos to 1	
+			
+		}
+		if ( $var_type eq "igr_snp"  ){
+			
+			my $start = $feature_info_igr{$allele};
+			$snp_pos = $pos_no - $start + 1; # adjust start pos to 1	
+			
 		}
 	
 		# print to file

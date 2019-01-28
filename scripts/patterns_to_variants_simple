@@ -1,0 +1,142 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+use Getopt::Long qw(GetOptions);
+use Pod::Usage;
+
+# expand patterns to variants list/vcf
+
+=head1  SYNOPSIS
+
+
+ patterns_to_variants -i /path/to/vcf_file -o /path/to/output_file
+
+ Input/Output:
+ -i|--input		input vcf/table [required]
+ -c|--conversion		input conversion file [required]
+ -o|--output		output vcf/table [required]
+
+ General:
+ -h|--help		usage information
+ 
+=cut
+
+# switch buffer off 
+$| = 1;
+
+# variables
+my $input = "";
+my $output = "";
+my $conversion = "";
+
+my $l_threshold = 0.00;
+my $h_threshold = 1;
+my $list = '';
+
+my $help = 0; 
+
+GetOptions(
+
+	'help|?' 	=> \$help,
+	
+	'input=s' 	=> \$input,
+	'conversion=s' => \$conversion,
+	'output=s'	=> \$output,	
+	
+	'fl|freq-low=f' => \$l_threshold,
+	'fh|freq-high=f' => \$h_threshold,
+
+	
+) or pod2usage(1);
+pod2usage(1) if $help;
+pod2usage( {-message => q{input vcf/table is a required arguement}, -exitval => 1, -verbose => 1 } ) if $input eq ''; 
+pod2usage( {-message => q{output file is a required arguement}, -exitval => 1, -verbose => 1 } ) if $output eq ''; 
+pod2usage( {-message => q{input conversion file is a required arguement}, -exitval => 1, -verbose => 1 } ) if $conversion eq ''; 
+
+# parse patterns file
+my %patterns = ();
+open PAT, $conversion or die " - ERROR: could not open list ($conversion)\n";
+while (<PAT>){
+
+	my $line = $_;
+	chomp $line;
+	
+	my @vars = split(/\t/, $line, -1);
+	
+	$patterns {$vars[0]} = $vars[3];  
+	
+}close PAT;
+
+# open output file
+open OUTPUT, ">$output" or die " - ERROR: could not open output file.\n";
+
+# parse input file
+my $no_patterns = 0;
+my $no_variants = 0;
+my $filtered = 0;
+
+my @headers = ();
+my $no_samples = 0;
+my @include = ();
+
+my $line_count = 0;
+open INPUT, $input or die " - ERROR: input file did not open.\n";
+while(<INPUT>){
+		
+	my $l = $_;
+	chomp $l;
+	
+	my @line = split(/\t/, $l, -1);
+	
+	# store headers
+	if(/^#/){
+		print OUTPUT "$l\n";
+	}elsif( $line_count == 0 ){	
+	
+		$line_count++;
+				
+		@headers = @line;
+		
+		my @outheaders = ($headers[0], "pattern", @headers[1..$#headers]); 
+		
+		print OUTPUT sprintf("%s\n", join("\t", @outheaders)); 
+		
+	}elsif(/^\S+\t/){
+	
+		$line_count++;
+	
+		$no_patterns++;	
+		
+		my $p = $line[0];
+		
+		if ( $patterns{$p} ){
+			
+			my @conv = split( /\,/, $patterns{$p} );
+			for my $v ( @conv ){
+				
+				print OUTPUT sprintf("%s\t%i\t%s\n", $v, $p, join("\t", @line[1..$#line])); 
+				
+				$no_variants++;
+			} 
+			
+			
+		}else{
+			die " - ERROR: pattern ($p) not found in conversion file.\n";
+		} 
+
+		# feedback
+		if ( $no_patterns%1000 == 0 ){
+			print "\r - $no_patterns patterns processed.";
+		}
+		
+	}
+			
+}
+close INPUT;
+print "\r - $no_patterns patterns processed.\n";
+
+# feedback
+print " - $no_patterns patterns in file.\n";
+print " - $no_variants variants printed to output file.\n";
+

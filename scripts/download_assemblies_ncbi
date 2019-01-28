@@ -1,0 +1,153 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings qw(all);
+
+use Getopt::Long qw(GetOptions :config no_ignore_case);
+use Pod::Usage;
+use Cwd 'abs_path';
+use File::Basename;
+
+# download assemblies from refseq/genbank
+
+=head1  SYNOPSIS
+
+	download_assemblies_ncbi -i taxid -o ./path/to/output_dir/ 
+
+ Input/output:
+ -i|--input 	path to assembly_summary_refseq.txt [required]
+ -o|--output 	output directory [required]
+ 
+ Filter options:
+ -t|--taxonid	output isolates with taxon id [default: off]
+ -s|--status	status of assembly, options: Complete Genome, Contig, Scaffold, all
+ 			[default: Complete Genome] 
+ -n|--number	max number of samples to download [default: off]
+ -d|--download	toggle download of isolates [default: on]	
+ 
+ -h|--help 	usage information
+ 
+=cut
+
+# path to executing script
+#my $script_path = abs_path(dirname($0));
+
+# command line options
+my $input = '';
+my $output_dir = '';
+
+my $taxid = 0;
+my $status = "Complete Genome";
+my $add_strain = 0;
+my $number = "";
+my $no_download = 0;
+my $help = 0;
+
+pod2usage(1) if scalar(@ARGV) == 0;
+GetOptions(
+
+	'input=s' 	=> \$input,
+	'output=s'	=> \$output_dir,
+	
+	'taxid=s' 	=> \$taxid,
+	'status=s' => \$status, 
+	'add-strain' => \$add_strain,
+	'number=i' => \$number, 
+	'download'	=> \$no_download,
+	'help|?' 	=> \$help,
+
+) or die pod2usage(1);
+pod2usage(1) if $help;
+
+# check dependencies
+die " - ERROR: input assembly_summary_refseq.txt not specified\n" if $input eq "";
+die " - ERROR: output directory not specified\n" if $output_dir eq "";
+
+# make output directory
+unless( -d $output_dir ){
+	die " - ERROR: could not make $output_dir\n" unless mkdir $output_dir; 
+}
+
+# feedback
+print " - Downloading of isolates is disabled, only creating summary.\n" if $no_download == 1;
+
+# open output file
+open SUM, ">$output_dir/summary.tab" or die " - ERROR: output summary ($output_dir/summary.tab) did not open.\n";
+
+# parse input file - store relevant info
+my $count = 0;
+print " - 0 samples downloaded";
+open IN, $input or die " - ERROR: input file did not open.\n";
+while(<IN>){
+	
+	my $line = $_;
+	chomp $line;
+	
+	my @vars = split("\t", $line, -1);
+	
+	# headers
+	if(/^# assembly/){
+		print SUM "id\t$line\n";
+	}elsif(/^#/){
+	# store info per matching isolate
+	}else{
+	
+		# variables
+		my $acc = $vars[0]; # accession
+		my $ftp = $vars[19]; # ftp
+		my $excluded = $vars[20]; # excluded
+		my $tax_id = $vars[6]; # taxonid
+		my $species = $vars[7]; # species
+		my $type = $vars[11]; # type
+		my $strain = $vars[8]; # strain
+	
+		# filter on taxon id and assembly status 
+		if ( (($taxid == 0) || ($taxid == $tax_id)) && ( ($type eq $status) || ($status eq "all") ) && ($excluded eq "") ){
+		
+			# get ftp isolate name
+			$ftp =~ /.+\/(\S+)$/; 
+			my $file_name = "$1_genomic.fna.gz";
+			
+			# create isolate name from accession and strain info [optional]
+			my $strain_out = "";
+			if ( $strain ne "" ){
+				$strain =~ /strain=(.+)/;
+				$strain_out = $1;	
+				$strain_out =~ s/\-/\_/g;
+				$strain_out =~ s/\s+/\_/g;
+				$strain_out =~ s/\//\_/g;			
+			}
+			 
+			my $iso_name = "$acc";
+			$iso_name = "$iso_name\-$strain_out" if ( ( $add_strain == 1 ) && ( $strain_out ne "" ) );
+			$iso_name =~ s/\./_/g;
+			
+			# run ftp on isolate
+			if ($no_download == 0){
+				unlink("$output_dir/$iso_name.fasta") if -f "$output_dir/$iso_name.fasta";
+				`wget -O - $ftp/$file_name 2>/dev/null | gunzip -c > $output_dir/$iso_name.fasta`;  
+			}
+			
+			if( !($?) || ($no_download == 0) ){
+			
+				# print included isolates to summary file if it downloaded correctly
+				print SUM "$iso_name\t$line\n";
+			
+				# increment count
+				++$count;
+				print "\r - $count samples downloaded";
+			
+			}
+			
+			if ($number ne ""){
+				last if $count >= $number; 
+			}
+		}
+		
+	}
+}
+
+# feeback
+print "\r - $count samples downloaded\n";
+
+
