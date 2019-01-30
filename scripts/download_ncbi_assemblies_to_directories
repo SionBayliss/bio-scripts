@@ -1,0 +1,171 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings qw(all);
+
+use Getopt::Long qw(GetOptions :config no_ignore_case);
+use Pod::Usage;
+use Cwd 'abs_path';
+use File::Basename;
+
+# download assemblies from refseq/genbank and store them in seperate folders per species/taxid
+
+=head1  SYNOPSIS
+
+	download_assemblies_ncbi -i taxid -o ./path/to/output_dir/ 
+
+ Input/output:
+ -i|--input 	path to assembly_summary_refseq.txt [required]
+ -o|--output 	output directory [required]
+ 
+ General options:	
+ -h|--help 	usage information
+ 
+=cut
+
+# command line options
+my $input = '';
+my $output_dir = '';
+my $help = 0;
+
+pod2usage(1) if scalar(@ARGV) == 0;
+GetOptions(
+
+	'input=s' 	=> \$input,
+	'output=s'	=> \$output_dir,
+	
+	'help|?' 	=> \$help,
+
+) or die pod2usage(1);
+pod2usage(1) if $help;
+
+# check
+die " - ERROR: input file not specified\n" if $input eq "";
+die " - ERROR: output directory not specified\n" if $output_dir eq "";
+
+# make output directory
+unless( -d $output_dir ){
+	die " - ERROR: could not make $output_dir\n" unless mkdir $output_dir; 
+}
+
+# parse input file  
+my $ftp_idx = 0;
+my $idx = 0;
+my %sample_hash = ();
+my $s_count = 0;
+open IN, $input or die " - ERROR: input file did not open\n";
+while(<IN>){
+	
+	# headers
+	my $line = $_;
+	chomp $line;
+	
+	my @vars = split("\t", $line, -1);
+	
+	# headers
+	if( (/^# assembly/) || (/^assembly/) ){
+		
+		my $t = 0;
+		for my $i (0..$#vars){
+			
+			if( ($vars[$i] eq "species_taxid") && ($idx eq "") ){
+				$idx = $i;
+				$t = 1;
+			}elsif($vars[$i] eq "species"){
+				$idx = $i;
+				$t = 2;
+			}
+			if( ($vars[$i] eq "ftp_path") ){
+				$ftp_idx = $i;
+			}
+		}
+		
+		# feedback
+		print " - directories named on taxon id\n" if ( $t == 1 ) ;
+		print " - directories named on species name\n" if ( $t == 1 ) ;
+		die " - species_taxid or species headers not found\n" if $t == 0;
+		die " - ftp_path headers not found\n" if $ftp_idx eq "";
+		
+	}elsif(/^#/){
+	# store info per matching isolate
+	}else{
+	
+		++$s_count;
+	
+		my $acc = $vars[0]; # accession
+		my $ftp = $vars[$ftp_idx]; # ftp_path
+		my $spp_raw = $vars[$idx]; # name
+		
+		# remove whitespace
+		my $spp = $spp_raw;
+		$spp =~ s/\s+/_/g;
+		
+		$sample_hash{$spp}{$acc} = $ftp;
+	}
+
+}close IN;
+
+# feedback
+my $no_spp = keys(%sample_hash);
+print " - $s_count samples to be downloaded from $no_spp species/taxa\n";
+
+# open output file
+open SUM, ">$output_dir/download_summary.tab" or die " - ERROR: output summary ($output_dir/summary.tab) did not open.\n";
+
+# download samples
+my $count = 0;
+print " - 0 samples downloaded (0 %)";
+for my $sp (keys %sample_hash){
+
+	# create dirs
+	my $output_dir_a = sprintf("%s/%s/", $output_dir, $sp); 
+	$output_dir_a =~ s/\/\//\//g;
+	unless( -d $output_dir_a ){
+		die " - ERROR: could not make $output_dir_a\n" unless mkdir $output_dir_a; 
+	}
+	
+	my $output_dir_b = sprintf("%s/fasta_files/", $output_dir_a); 
+	$output_dir_b =~ s/\/\//\//g;
+	unless( -d $output_dir_b ){
+		die " - ERROR: could not make $output_dir_b\n" unless mkdir $output_dir_b; 
+	}
+	
+	for my $acc ( keys %{$sample_hash{$sp}} ){
+	
+			# get ftp isolate name
+			my $ftp = $sample_hash{$sp}{$acc};
+			$ftp =~ /.+\/(\S+)$/; 
+			my $file_name = "$1_genomic.fna.gz";
+			
+			my $iso_name = $acc;
+			$iso_name =~ s/\./_/g;
+			
+			my $out_file = "$output_dir_b$iso_name.fasta";
+				
+			# run ftp on isolate
+			unlink("$out_file") if -f "$out_file";
+			`wget -O - $ftp/$file_name 2>/dev/null | gunzip -c > $out_file`;
+			
+			if( !($?) ){
+			
+				# print included isolates to summary file if it downloaded correctly
+				print SUM "$acc\t$out_file\n";
+			
+				# increment count
+				++$count;
+			
+			}else{
+				print " - WARNING: $iso_name ($file_name) failed to download\n";
+			}			
+			
+			# feedback
+			my $per = sprintf( "%.3f", $count/$s_count * 100) ;
+			print "\r - $count samples downloaded ($per %)";
+	}
+	
+}
+print "\n";
+close SUM;
+
+exit;
+
