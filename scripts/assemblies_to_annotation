@@ -8,7 +8,7 @@ use Pod::Usage;
 use Cwd 'abs_path';
 use File::Basename;
 
-# run mash on downloaded assemblies from ncbi/refseq
+# run prokka on downloaded assemblies from ncbi/refseq
 
 =head1  SYNOPSIS
 
@@ -49,7 +49,7 @@ my $script_path = abs_path(dirname($0));
 die " - ERROR: input file not specified\n" if $input eq "";
 die " - ERROR: output directory not specified\n" if $output_dir eq "";
 
-# make output directory
+# check input/output directory
 unless( -d $output_dir ){
 	die " - ERROR: output directory does not exist\n"; 
 }
@@ -116,7 +116,7 @@ my $no_spp = keys(%sample_hash);
 print " - $s_count samples from $no_spp species/taxa\n";
 
 # open output file
-open SUM, ">$output_dir/mash_summary.tab" or die " - ERROR: output summary ($output_dir/mash_summary.tab) did not open.\n";
+open SUM, ">$output_dir/prokka_summary.tab" or die " - ERROR: output summary ($output_dir/prokka_summary.tab) did not open.\n";
 
 # mash samples
 my $count = 0;
@@ -144,6 +144,7 @@ for my $sp (keys %sample_hash){
 	open RUN, ">$output_dir_a/mash_run.tab" or die " - ERROR: output summary ($output_dir_a/mash_run.tab) did not open.\n";
 	
 	# store samples
+	my @triangle = ();
 	for my $acc ( keys %{$sample_hash{$sp}} ){
 	
 			my $iso_name = $acc;
@@ -159,6 +160,8 @@ for my $sp (keys %sample_hash){
 			
 			# print included isolates to summary file if it downloaded correctly
 			print SUM "$acc\t$in_file\t$out_file\n";
+			
+			push(@triangle, $out_file);
 		
 			# increment count
 			++$count;
@@ -169,11 +172,11 @@ for my $sp (keys %sample_hash){
 	`parallel -a $output_dir_a/mash_run.tab --jobs $parallel --colsep '\t' mash sketch -k 32 -s 2000 -o {2} {1} 2>/dev/null`;
 	
 	# make compound sketch file
-	`cut -f 2,2 < $output_dir_a/mash_run.tab > $output_dir_a/mash_paste.tab`; # make list	
-	unlink("$output_dir_a/$sp.mash_dist.msh") if ( -f "$output_dir_a/$sp.mash_dist.msh"); # remove old file
-	`mash paste -l $output_dir_a/$sp.mash_dist $output_dir_a/mash_paste.tab 2>/dev/null`; # paste files
-	`mash dist $output_dir_a/$sp.mash_dist.msh $output_dir_a/$sp.mash_dist.msh >$output_dir_a/$sp.mash_dist.tab 2>/dev/null`; # run mash dist
-	`sed 's#$output_dir_b##g' < $output_dir_a/$sp.mash_dist.tab | sed 's/\.fasta//g' > $output_dir_a/$sp.mash_dist.tab.temp`; # clean file
+	my $t_files = join(" ", @triangle); 
+	unlink("$output_dir_a/$sp.mash_dist.msh") if ( -f "$output_dir_a/$sp.mash_dist.msh");
+	`mash paste $output_dir_a/$sp.mash_dist $t_files 2>/dev/null`;
+	`mash dist $output_dir_a/$sp.mash_dist.msh $output_dir_a/$sp.mash_dist.msh >$output_dir_a/$sp.mash_dist.tab 2>/dev/null`;
+	`sed 's#$output_dir_b##g' < $output_dir_a/$sp.mash_dist.tab | sed 's/\.fasta//g' > $output_dir_a/$sp.mash_dist.tab.temp`;
 	`mv $output_dir_a/$sp.mash_dist.tab.temp $output_dir_a/$sp.mash_dist.tab`;
 	
 	# convert distances to distmat
@@ -184,7 +187,9 @@ for my $sp (keys %sample_hash){
 	
 	# tidy up
 	unlink("$output_dir_a/mash_run.tab");
-	unlink("$output_dir_a/mash_paste.tab");
+	
+	# store isos
+	push(@all, @triangle);
 	
 	# feedback
 	my $per = sprintf( "%.3f", $count/$s_count * 100) ;
@@ -195,12 +200,12 @@ print "\n";
 close SUM;
 
 # make tree for all isolates
+my $t_files = join(" ", @all);
 
 # make compound sketch file
-`cut -f 3,3 < $output_dir/mash_summary.tab > $output_dir/mash_paste.tab`; # make list
-unlink("$output_dir/mash_dist.msh") if ( -f "$output_dir/mash_dist.msh");  # remove old file
-`mash paste -l $output_dir/mash_dist $output_dir/mash_paste.tab 2>/dev/null`; # paste files
-`mash dist $output_dir/mash_dist.msh $output_dir/mash_dist.msh >$output_dir/mash_dist.tab 2>/dev/null`; # run dist
+unlink("$output_dir/mash_dist.msh") if ( -f "$output_dir/mash_dist.msh");
+`mash paste $output_dir/mash_dist $t_files 2>/dev/null`;
+`mash dist $output_dir/mash_dist.msh $output_dir/mash_dist.msh >$output_dir/mash_dist.tab 2>/dev/null`;
 `sed 's#^/.*\/fasta_files\/##g' < $output_dir/mash_dist.tab | sed 's/\.fasta//g' > $output_dir/mash_dist.tab.temp`;
 `mv $output_dir/mash_dist.tab.temp $output_dir/mash_dist.tab`;
 
@@ -209,9 +214,6 @@ unlink("$output_dir/mash_dist.msh") if ( -f "$output_dir/mash_dist.msh");  # rem
 
 # rapidnj for tree
 `rapidnj $output_dir/mash_distmat.tab -i pd -x $output_dir/mash.tre 2>/dev/null`;
-
-# tidy up
-unlink("$output_dir/mash_paste.tab");
 	
 exit;
 
