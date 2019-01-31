@@ -63,7 +63,7 @@ $prokka_args =~ s/--strain\s+\S+//g;
 # feedback 
 print "\nInputs/Defaults:\n - file list: $list\n - fasta directory: $file_path\n - output directory: $output_dir\n - file suffix: $suffix\n - prokka arguements: $prokka_args\n - files to keep: $keep\n - threads: $threads\n\n";
 
-# parse file list and make file for parallel]
+# parse file list and make file for parallel
 print " - checking that all files are present in $file_path\n";
 my @samples = ();
 my $error = 0;
@@ -117,7 +117,7 @@ for my $j (@samples){
 
 # run prokka on all samples
 print " - running prokka on all files in parallel\n";
-my $prokka = qq( parallel -a $output_dir/prokka_list.txt -j $threads \"prokka $prokka_args --cpus 1 --force --outdir $output_dir/{} --prefix {} --locustag {} --strain {} $output_dir/{}.fas\" 2>>/dev/null);
+my $prokka = qq( parallel -a $output_dir/prokka_list.txt -j $threads \"prokka $prokka_args --cpus 1 --force --outdir $output_dir/{} --prefix {} --locustag {} --strain {} $output_dir/{}.fas\" 2>$output_dir/prokka_run.txt );
 system($prokka);
 
 # Check files are present and make list of processed and missing isolates;

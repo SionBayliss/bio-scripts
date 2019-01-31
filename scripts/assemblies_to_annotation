@@ -124,6 +124,16 @@ my @all = ();
 print " - 0 samples processed (0 %)        ";
 for my $sp (keys %sample_hash){
 
+	# get species name for naming
+	my @prokka_args = ("--compliant");
+	if ($sp =~ /(\S+)\_(\S+)/){
+		push( @prokka_args, "--genus $1" ); 
+		push( @prokka_args, "--genus $2" );
+		print "sp - $1 $2\n"; 
+	}else{
+		push( @prokka_args, "--species $sp" ); 
+	}
+
 	# check files/dirs
 	my $output_dir_a = sprintf("%s/%s/", $output_dir, $sp); 
 	$output_dir_a =~ s/\/\//\//g;
@@ -134,86 +144,52 @@ for my $sp (keys %sample_hash){
 	die " - $output_dir_b does not exist\n" unless( -d $output_dir_b );
 	
 	# create output dir
-	my $output_dir_c = sprintf("%s/sketches/", $output_dir_a); 
+	my $output_dir_c = sprintf("%s/annotation/", $output_dir_a); 
 	$output_dir_c =~ s/\/\//\//g;
 	unless( -d $output_dir_c ){
 		die " - ERROR: could not make $output_dir_c\n" unless mkdir $output_dir_c; 
 	}
 	
 	# run file 
-	open RUN, ">$output_dir_a/mash_run.tab" or die " - ERROR: output summary ($output_dir_a/mash_run.tab) did not open.\n";
+	open RUN, ">$output_dir_a/assembly_run.tab" or die " - ERROR: output summary ($output_dir_a/assembly_run.tab) did not open.\n";
 	
 	# store samples
-	my @triangle = ();
 	for my $acc ( keys %{$sample_hash{$sp}} ){
 	
 			my $iso_name = $acc;
 			$iso_name =~ s/\./_/g;
+						
 			my $in_file = "$output_dir_b$iso_name.fasta";
-			my $out_file = "$output_dir_c$iso_name.msh";
+			my $out_file = "$output_dir_c$iso_name";
 			
 			# check input file 
 			die " - could not find input file $in_file\n" unless -f $in_file;
 			
 			# write to run file 
-			print RUN "$in_file\t$out_file\n";
+			print RUN "$iso_name\n";
 			
 			# print included isolates to summary file if it downloaded correctly
 			print SUM "$acc\t$in_file\t$out_file\n";
 			
-			push(@triangle, $out_file);
-		
 			# increment count
 			++$count;
 		
 	}close RUN;
 	
-	# make mash sketches in parallel
-	`parallel -a $output_dir_a/mash_run.tab --jobs $parallel --colsep '\t' mash sketch -k 32 -s 2000 -o {2} {1} 2>/dev/null`;
-	
-	# make compound sketch file
-	my $t_files = join(" ", @triangle); 
-	unlink("$output_dir_a/$sp.mash_dist.msh") if ( -f "$output_dir_a/$sp.mash_dist.msh");
-	`mash paste $output_dir_a/$sp.mash_dist $t_files 2>/dev/null`;
-	`mash dist $output_dir_a/$sp.mash_dist.msh $output_dir_a/$sp.mash_dist.msh >$output_dir_a/$sp.mash_dist.tab 2>/dev/null`;
-	`sed 's#$output_dir_b##g' < $output_dir_a/$sp.mash_dist.tab | sed 's/\.fasta//g' > $output_dir_a/$sp.mash_dist.tab.temp`;
-	`mv $output_dir_a/$sp.mash_dist.tab.temp $output_dir_a/$sp.mash_dist.tab`;
-	
-	# convert distances to distmat
-	`$script_path/mash_dist_to_distmat $output_dir_a/$sp.mash_dist.tab > $output_dir_a/$sp.mash_distmat.tab`;
-	
-	# rapidnj for tree
-	`rapidnj $output_dir_a/$sp.mash_distmat.tab -i pd -x $output_dir_a/$sp.mash.tre 2>/dev/null`;
-	
-	# tidy up
-	unlink("$output_dir_a/mash_run.tab");
-	
-	# store isos
-	push(@all, @triangle);
-	
+	# run prokka in parallel
+	my $p_args = join(" ", @prokka_args);
+	`$script_path/prokka_list -p $output_dir_b -l $output_dir_a/assembly_run.tab -a $p_args -o $output_dir_c -f \".gff\" -s \"fasta\" -t $parallel 2>/dev/null`);
+      
+      # tidy up
+	unlink("$output_dir_a/assembly_run.tab");
+
 	# feedback
 	my $per = sprintf( "%.3f", $count/$s_count * 100) ;
 	print "\r - $count samples processed ($per %)          ";
-	
+
 }
 print "\n";
 close SUM;
 
-# make tree for all isolates
-my $t_files = join(" ", @all);
-
-# make compound sketch file
-unlink("$output_dir/mash_dist.msh") if ( -f "$output_dir/mash_dist.msh");
-`mash paste $output_dir/mash_dist $t_files 2>/dev/null`;
-`mash dist $output_dir/mash_dist.msh $output_dir/mash_dist.msh >$output_dir/mash_dist.tab 2>/dev/null`;
-`sed 's#^/.*\/fasta_files\/##g' < $output_dir/mash_dist.tab | sed 's/\.fasta//g' > $output_dir/mash_dist.tab.temp`;
-`mv $output_dir/mash_dist.tab.temp $output_dir/mash_dist.tab`;
-
-# convert distances to distmat
-`$script_path/mash_dist_to_distmat $output_dir/mash_dist.tab > $output_dir/mash_distmat.tab`;
-
-# rapidnj for tree
-`rapidnj $output_dir/mash_distmat.tab -i pd -x $output_dir/mash.tre 2>/dev/null`;
-	
 exit;
 

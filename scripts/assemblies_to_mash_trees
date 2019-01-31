@@ -195,6 +195,7 @@ print "\n";
 close SUM;
 
 # make tree for all isolates
+print " - making all vs. all distance comparison\n";
 
 # make compound sketch file
 `cut -f 3,3 < $output_dir/mash_summary.tab > $output_dir/mash_paste.tab`; # make list
@@ -205,9 +206,11 @@ unlink("$output_dir/mash_dist.msh") if ( -f "$output_dir/mash_dist.msh");  # rem
 `mv $output_dir/mash_dist.tab.temp $output_dir/mash_dist.tab`;
 
 # convert distances to distmat
+print " - converting distances to matrix\n";
 `$script_path/mash_dist_to_distmat $output_dir/mash_dist.tab > $output_dir/mash_distmat.tab`;
 
 # rapidnj for tree
+print " - making all vs. all tree\n";
 `rapidnj $output_dir/mash_distmat.tab -i pd -x $output_dir/mash.tre 2>/dev/null`;
 
 # tidy up
