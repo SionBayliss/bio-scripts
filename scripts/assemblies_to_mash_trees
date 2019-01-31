@@ -173,7 +173,8 @@ for my $sp (keys %sample_hash){
 	
 	# make compound sketch file
 	my $t_files = join(" ", @triangle); 
-	`mash sketch -p $parallel -o $output_dir_a/$sp.mash_dist $t_files 2>/dev/null`;
+	unlink("$output_dir_a/$sp.mash_dist.msh") if ( -f "$output_dir_a/$sp.mash_dist.msh");
+	`mash paste $output_dir_a/$sp.mash_dist $t_files 2>/dev/null`;
 	`mash dist $output_dir_a/$sp.mash_dist.msh $output_dir_a/$sp.mash_dist.msh >$output_dir_a/$sp.mash_dist.tab 2>/dev/null`;
 	`sed 's#$output_dir_b##g' < $output_dir_a/$sp.mash_dist.tab | sed 's/\.fasta//g' > $output_dir_a/$sp.mash_dist.tab.temp`;
 	`mv $output_dir_a/$sp.mash_dist.tab.temp $output_dir_a/$sp.mash_dist.tab`;
@@ -202,7 +203,8 @@ close SUM;
 my $t_files = join(" ", @all);
 
 # make compound sketch file
-`mash sketch -p $parallel -o $output_dir/mash_dist $t_files 2>/dev/null`;
+unlink("$output_dir/mash_dist.msh") if ( -f "$output_dir/mash_dist.msh");
+`mash paste $output_dir/mash_dist $t_files 2>/dev/null`;
 `mash dist $output_dir/mash_dist.msh $output_dir/mash_dist.msh >$output_dir/mash_dist.tab 2>/dev/null`;
 `sed 's#^/.*\/fasta_files\/##g' < $output_dir/mash_dist.tab | sed 's/\.fasta//g' > $output_dir/mash_dist.tab.temp`;
 `mv $output_dir/mash_dist.tab.temp $output_dir/mash_dist.tab`;
