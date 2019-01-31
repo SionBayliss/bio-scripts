@@ -1,0 +1,217 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings qw(all);
+
+use Getopt::Long qw(GetOptions :config no_ignore_case);
+use Pod::Usage;
+use Cwd 'abs_path';
+use File::Basename;
+
+# run mash on downloaded assemblies from ncbi/refseq
+
+=head1  SYNOPSIS
+
+	download_assemblies_ncbi -i taxid -o ./path/to/output_dir/ 
+
+ Input/output:
+ -i|--input 	path to assembly_summary_refseq.txt [required]
+ -o|--output 	output directory, must contain assemblies [required]
+ 
+ General options:	
+ -p|--parallel	parallel threads [default: 2] 
+ -h|--help 	usage information
+ 
+=cut
+
+# command line options
+my $input = '';
+my $output_dir = '';
+my $parallel = 2;
+my $help = 0;
+
+pod2usage(1) if scalar(@ARGV) == 0;
+GetOptions(
+
+	'input=s' 	=> \$input,
+	'output=s'	=> \$output_dir,
+	'parallel=i'  => \$parallel,
+	
+	'help|?' 	=> \$help,
+
+) or die pod2usage(1);
+pod2usage(1) if $help;
+
+# script path
+my $script_path = abs_path(dirname($0));
+
+# check
+die " - ERROR: input file not specified\n" if $input eq "";
+die " - ERROR: output directory not specified\n" if $output_dir eq "";
+
+# make output directory
+unless( -d $output_dir ){
+	die " - ERROR: output directory does not exist\n"; 
+}
+
+# parse input file  
+my $ftp_idx = 0;
+my $idx = 0;
+my %sample_hash = ();
+my $s_count = 0;
+open IN, $input or die " - ERROR: input file did not open\n";
+while(<IN>){
+	
+	# headers
+	my $line = $_;
+	chomp $line;
+	
+	my @vars = split("\t", $line, -1);
+	
+	# headers
+	if( (/^# assembly/) || (/^assembly/) ){
+		
+		my $t = 0;
+		for my $i (0..$#vars){
+			
+			if( ($vars[$i] eq "species_taxid") && ($idx eq "") ){
+				$idx = $i;
+				$t = 1;
+			}elsif($vars[$i] eq "species"){
+				$idx = $i;
+				$t = 2;
+			}
+			if( ($vars[$i] eq "ftp_path") ){
+				$ftp_idx = $i;
+			}
+		}
+		
+		# feedback
+		print " - directories named on taxon id\n" if ( $t == 1 ) ;
+		print " - directories named on species name\n" if ( $t == 1 ) ;
+		die " - species_taxid or species headers not found\n" if $t == 0;
+		die " - ftp_path headers not found\n" if $ftp_idx eq "";
+		
+	}elsif(/^#/){
+	# store info per matching isolate
+	}else{
+	
+		++$s_count;
+	
+		my $acc = $vars[0]; # accession
+		my $ftp = $vars[$ftp_idx]; # ftp_path
+		my $spp_raw = $vars[$idx]; # name
+		
+		# remove whitespace
+		my $spp = $spp_raw;
+		$spp =~ s/\s+/_/g;
+		
+		$sample_hash{$spp}{$acc} = $ftp;
+	}
+
+}close IN;
+
+# feedback
+my $no_spp = keys(%sample_hash);
+print " - $s_count samples from $no_spp species/taxa\n";
+
+# open output file
+open SUM, ">$output_dir/mash_summary.tab" or die " - ERROR: output summary ($output_dir/mash_summary.tab) did not open.\n";
+
+# mash samples
+my $count = 0;
+my @all = ();
+print " - 0 samples processed (0 %)        ";
+for my $sp (keys %sample_hash){
+
+	# check files/dirs
+	my $output_dir_a = sprintf("%s/%s/", $output_dir, $sp); 
+	$output_dir_a =~ s/\/\//\//g;
+	die " - $output_dir_a does not exist\n" unless( -d $output_dir_a );
+	
+	my $output_dir_b = sprintf("%s/fasta_files/", $output_dir_a); 
+	$output_dir_b =~ s/\/\//\//g;
+	die " - $output_dir_b does not exist\n" unless( -d $output_dir_b );
+	
+	# create output dir
+	my $output_dir_c = sprintf("%s/sketches/", $output_dir_a); 
+	$output_dir_c =~ s/\/\//\//g;
+	unless( -d $output_dir_c ){
+		die " - ERROR: could not make $output_dir_c\n" unless mkdir $output_dir_c; 
+	}
+	
+	# run file 
+	open RUN, ">$output_dir_a/mash_run.tab" or die " - ERROR: output summary ($output_dir_a/mash_run.tab) did not open.\n";
+	
+	# store samples
+	my @triangle = ();
+	for my $acc ( keys %{$sample_hash{$sp}} ){
+	
+			my $iso_name = $acc;
+			$iso_name =~ s/\./_/g;
+			my $in_file = "$output_dir_b$iso_name.fasta";
+			my $out_file = "$output_dir_c$iso_name.msh";
+			
+			# check input file 
+			die " - could not find input file $in_file\n" unless -f $in_file;
+			
+			# write to run file 
+			print RUN "$in_file\t$out_file\n";
+			
+			# print included isolates to summary file if it downloaded correctly
+			print SUM "$acc\t$in_file\t$out_file\n";
+			
+			push(@triangle, $out_file);
+		
+			# increment count
+			++$count;
+		
+	}close RUN;
+	
+	# make mash sketches in parallel
+	`parallel -a $output_dir_a/mash_run.tab --jobs $parallel --colsep '\t' mash sketch -k 32 -s 2000 -o {2} {1} 2>/dev/null`;
+	
+	# make compound sketch file
+	my $t_files = join(" ", @triangle); 
+	`mash sketch -p $parallel -o $output_dir_a/$sp.mash_dist $t_files 2>/dev/null`;
+	`mash dist $output_dir_a/$sp.mash_dist.msh $output_dir_a/$sp.mash_dist.msh >$output_dir_a/$sp.mash_dist.tab 2>/dev/null`;
+	`sed 's#$output_dir_b##g' < $output_dir_a/$sp.mash_dist.tab | sed 's/\.fasta//g' > $output_dir_a/$sp.mash_dist.tab.temp`;
+	`mv $output_dir_a/$sp.mash_dist.tab.temp $output_dir_a/$sp.mash_dist.tab`;
+	
+	# convert distances to distmat
+	`$script_path/mash_dist_to_distmat $output_dir_a/$sp.mash_dist.tab > $output_dir_a/$sp.mash_distmat.tab`;
+	
+	# rapidnj for tree
+	`rapidnj $output_dir_a/$sp.mash_distmat.tab -i pd -x $output_dir_a/$sp.mash.tre 2>/dev/null`;
+	
+	# tidy up
+	unlink("$output_dir_a/mash_run.tab");
+	
+	# store isos
+	push(@all, @triangle);
+	
+	# feedback
+	my $per = sprintf( "%.3f", $count/$s_count * 100) ;
+	print "\r - $count samples processed ($per %)          ";
+	
+}
+print "\n";
+close SUM;
+
+# make tree for all isolates
+my $t_files = join(" ", @all);
+
+# make compound sketch file
+`mash sketch -p $parallel -o $output_dir/mash_dist $t_files 2>/dev/null`;
+`mash dist $output_dir/mash_dist.msh $output_dir/mash_dist.msh >$output_dir/mash_dist.tab 2>/dev/null`;
+`sed 's#^/.*\/fasta_files\/##g' < $output_dir/mash_dist.tab | sed 's/\.fasta//g' > $output_dir/mash_dist.tab.temp`;
+`mv $output_dir/mash_dist.tab.temp $output_dir/mash_dist.tab`;
+
+# convert distances to distmat
+`$script_path/mash_dist_to_distmat $output_dir/mash_dist.tab > $output_dir/mash_distmat.tab`;
+
+# rapidnj for tree
+`rapidnj $output_dir/mash_distmat.tab -i pd -x $output_dir/mash.tre 2>/dev/null`;
+	
+exit;
+

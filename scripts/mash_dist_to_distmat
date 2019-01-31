@@ -1,0 +1,40 @@
+#!/usr/bin/env perl
+
+# Make distance matrix from mash sketch distance output.
+
+# Input
+$input=$ARGV[0];
+
+# Parse input
+open IN, $input or die $!;
+while (<IN>){
+	if(/^(\S+)\s+(\S+)\s+(\S+)\s+/){		
+		
+		my $s1 = $1;
+		my $s2 = $2;
+		my $s3 = $3;
+		
+		$s1 =~ s/\S+\///g;
+		$s2 =~ s/\S+\///g;
+		
+		if(!$samples{$s1}{$s2}){
+			$samples{$s1}{$s2}=$s3;
+		}else{	
+			print "$s1-$s2-$s3-",$samples{$s1}{$s2},"\n"; 
+		}
+	}
+}
+
+# Make output in phylip format.
+print scalar(keys(%samples)), "\n";
+for $i(sort keys %samples){
+
+	my @outline = ("$i");
+	
+	for $j(sort keys %{$samples{$i}}){
+		push(@outline, $samples{$i}{$j}); 
+	}
+	
+	# print
+	print(sprintf("%s\n", join("\t", @outline)));
+}
