@@ -129,7 +129,6 @@ for my $sp (keys %sample_hash){
 	if ($sp =~ /(\S+)\_(\S+)/){
 		push( @prokka_args, "--genus $1" ); 
 		push( @prokka_args, "--genus $2" );
-		print "sp - $1 $2\n"; 
 	}else{
 		push( @prokka_args, "--species $sp" ); 
 	}
@@ -178,7 +177,7 @@ for my $sp (keys %sample_hash){
 	
 	# run prokka in parallel
 	my $p_args = join(" ", @prokka_args);
-	`$script_path/prokka_list -p $output_dir_b -l $output_dir_a/assembly_run.tab -a $p_args -o $output_dir_c -f \".gff\" -s \"fasta\" -t $parallel 2>/dev/null`);
+	`$script_path/prokka_list -p $output_dir_b -l $output_dir_a/assembly_run.tab -a $p_args -o $output_dir_c -f \".gff\" -s \"fasta\" -t $parallel 2>/dev/null`;
       
       # tidy up
 	unlink("$output_dir_a/assembly_run.tab");
