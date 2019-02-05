@@ -458,7 +458,31 @@ system("mv $log.temp $log");
 print_log "\n - combining outputs...\n\n";
 my $inlist = $s_list;
 $inlist = $sm_list unless $add_prefix eq "";
-system("$script_path/combine_variants_for_pyseer -v $output/$prefix_vcf.expanded.$af.vcf -v $output/$prefix_igr_vcf.expanded.$af.vcf -p $output/core_alleles.$af.tsv -p $output/accessory_pa.$af.tsv -p $output/accessory_alleles.$af.tsv -p $output/duplications.$af.tsv -p $output/fissions.$af.tsv -p $output/piggy_pe.$af.tsv --suffix-vcf \"core,igr\" --suffix-pres \"c,a,aa,d,ff,igr\" --list $inlist -o $output/combined_variants.$af.tab | tee -a $log"); 
+
+# make file list
+my @vcf_in = ();
+push(@vcf_in, "-v $output/$prefix_vcf.expanded.$af.vcf") if ($vcf ne "");
+push(@vcf_in, "-v $output/$prefix_igr_vcf.expanded.$af.vcf") if ($piggy_vcf ne "");
+my $vcf_in = join(" ", @vcf_in);
+
+my @suff_vcf = ();
+push(@suff_vcf, "core") if ($vcf ne "");
+push(@suff_vcf, "igr") if ($piggy_vcf ne "");
+my $suff_vcf = join(",", @suff_vcf);
+
+my @pe_in = ();
+push(@pe_in, "-p $output/core_alleles.$af.tsv -p $output/accessory_pa.$af.tsv -p $output/accessory_alleles.$af.tsv -p $output/duplications.$af.tsv -p $output/fissions.$af.tsv") if $pir ne "";
+push(@pe_in, "-p $output/piggy_pe.$af.tsv") if $pig ne "";
+my $pe_in = join(" ", @pe_in);
+
+my @suff_pe = ();
+push(@suff_pe, "c,a,aa,d,ff") if ($pir ne "");
+push(@suff_pe, "igr") if ($pig ne "");
+my $suff_pe = join(",", @suff_pe);
+
+# run command
+system("$script_path/combine_variants_for_pyseer $vcf_in $pe_in --suffix-vcf $suff_vcf --suffix-pres $suff_pe --list $inlist -o $output/combined_variants.$af.tab | tee -a $log"); 
+
 die " - ERROR: combining outputs failed\n" if $?;
 
 # feedback

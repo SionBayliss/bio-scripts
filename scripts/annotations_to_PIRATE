@@ -8,18 +8,20 @@ use Pod::Usage;
 use Cwd 'abs_path';
 use File::Basename;
 
-# run prokka on downloaded assemblies from ncbi/refseq
+# run PIRATE on annotated assemblies from the NCBI/refseq
 
 =head1  SYNOPSIS
 
- assembies_to_annotation -i /path/to/assembly_summary_refseq.txt -o ./path/to/output_dir/ 
+ annotation_to_PIRATE -i /path/to/assembly_summary_refseq.txt -o ./path/to/output_dir/ 
 
  Input/output:
  -i|--input 	path to assembly_summary_refseq.txt [required]
  -o|--output 	output directory, must contain assemblies [required]
+ -p|--pirate	path to pirate executable [required]
  
  General options:	
- -p|--parallel	parallel threads [default: 2] 
+ -t|--threads	parallel threads [default: 2] 
+ -a|--args	arguments for PIRATE [default: none]
  -h|--help 	usage information
  
 =cut
@@ -29,13 +31,17 @@ my $input = '';
 my $output_dir = '';
 my $parallel = 2;
 my $help = 0;
+my $args = "";
+my $pirate_path = "";
 
 pod2usage(1) if scalar(@ARGV) == 0;
 GetOptions(
 
 	'input=s' 	=> \$input,
 	'output=s'	=> \$output_dir,
-	'parallel=i'  => \$parallel,
+	'threads=i'  => \$parallel,
+	'args=s'	=> \$args,
+	'pirate=s' => \$pirate_path,
 	
 	'help|?' 	=> \$help,
 
@@ -48,6 +54,7 @@ my $script_path = abs_path(dirname($0));
 # check
 die " - ERROR: input file not specified\n" if $input eq "";
 die " - ERROR: output directory not specified\n" if $output_dir eq "";
+die " - ERROR: output directory not specified\n" if $pirate_path eq "";
 
 # check input/output directory
 unless( -d $output_dir ){
@@ -118,77 +125,40 @@ print " - $s_count samples from $no_spp species/taxa\n";
 # open output file
 open SUM, ">$output_dir/prokka_summary.tab" or die " - ERROR: output summary ($output_dir/prokka_summary.tab) did not open.\n";
 
-# mash samples
+# PIRATE species sequentially
 my $count = 0;
 my @all = ();
-print " - 0 samples processed (0 %)        ";
+print " - 0 species/taxon processed (0 %)        ";
 for my $sp (keys %sample_hash){
-
-	# get species name for naming
-	my @prokka_args = ("--compliant");
-	if ($sp =~ /(\S+)\_(\S+)/){
-		push( @prokka_args, "--genus $1" ); 
-		push( @prokka_args, "--genus $2" );
-	}else{
-		push( @prokka_args, "--species $sp" ); 
-	}
-
+	
+	++$count;
+	
 	# check files/dirs
 	my $output_dir_a = sprintf("%s/%s/", $output_dir, $sp); 
 	$output_dir_a =~ s/\/\//\//g;
 	die " - $output_dir_a does not exist\n" unless( -d $output_dir_a );
 	
-	my $output_dir_b = sprintf("%s/fasta_files/", $output_dir_a); 
+	my $output_dir_b = sprintf("%s/annotation/gff/", $output_dir_a); 
 	$output_dir_b =~ s/\/\//\//g;
 	die " - $output_dir_b does not exist\n" unless( -d $output_dir_b );
 	
 	# create output dir
-	my $output_dir_c = sprintf("%s/annotation/", $output_dir_a); 
+	my $output_dir_c = sprintf("%s/pangenome/", $output_dir_a); 
 	$output_dir_c =~ s/\/\//\//g;
 	unless( -d $output_dir_c ){
 		die " - ERROR: could not make $output_dir_c\n" unless mkdir $output_dir_c; 
 	}
 	
-	# run file 
-	open RUN, ">$output_dir_a/assembly_run.tab" or die " - ERROR: output summary ($output_dir_a/assembly_run.tab) did not open.\n";
+	# run PIRATE
+	`$pirate_path -i $output_dir_b -o $output_dir_c -t $parallel $args`;
+	die " - ERROR: PIRATE failed on $sp" if $?;
 	
-	# store samples
-	for my $acc ( keys %{$sample_hash{$sp}} ){
-	
-			my $iso_name = $acc;
-			$iso_name =~ s/\./_/g;
-						
-			my $in_file = "$output_dir_b$iso_name.fasta";
-			my $out_file = "$output_dir_c$iso_name";
-			
-			# check input file 
-			die " - could not find input file $in_file\n" unless -f $in_file;
-			
-			# write to run file 
-			print RUN "$iso_name\n";
-			
-			# print included isolates to summary file if it downloaded correctly
-			print SUM "$acc\t$in_file\t$out_file\n";
-			
-			# increment count
-			++$count;
-		
-	}close RUN;
-	
-	# run prokka in parallel
-	my $p_args = join(" ", @prokka_args);
-	`$script_path/prokka_list -p $output_dir_b -l $output_dir_a/assembly_run.tab -a $p_args -o $output_dir_c -f \".gff\" -s \"fasta\" -t $parallel 2>/dev/null`;
-      
-      # tidy up
-	unlink("$output_dir_a/assembly_run.tab");
-
-	# feedback
-	my $per = sprintf( "%.3f", $count/$s_count * 100) ;
-	print "\r - $count samples processed ($per %)          ";
+      # feedback
+	my $per = sprintf( "%.3f", $count/$no_spp * 100) ;
+	print "\r - $count species/taxon processed ($per %)          ";
 
 }
 print "\n";
 close SUM;
 
 exit;
-

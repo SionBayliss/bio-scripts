@@ -140,52 +140,54 @@ my %pos_igr = ();
 my @features_igr = ();
 my $f_count_igr = 0; 
 my %feature_info_igr = ();
-open GFF_IGR, $gff_igr or die " - ERROR: could not open GFF - $gff_igr\n";
-while (<GFF_IGR>){
+if ($gff_igr ne ""){
+	open GFF_IGR, $gff_igr or die " - ERROR: could not open GFF - $gff_igr\n";
+	while (<GFF_IGR>){
 	
-	my $line  = $_;
-	chomp $line;
+		my $line  = $_;
+		chomp $line;
 	
-	my @vars = split(/\t/, $line);
+		my @vars = split(/\t/, $line);
 	
-	# FASTA section
-	if (/^##FASTA/){
-		last;
-	}
-	# header
-	elsif(/^#/){
-		
-	}else{
-	
-		my $start = $vars[3];
-		my $end = $vars[4];
-		
-		my $id = "";
-		for my $i (split(/;/, $vars[8])){
-			if ($i =~ /^ID=(.+)/){
-				$id = $1;
-			}
+		# FASTA section
+		if (/^##FASTA/){
+			last;
 		}
+		# header
+		elsif(/^#/){
 		
-		if ($id ne ""){
-			
-			# store feature index
-			push(@features_igr, $id);
-			++$f_count_igr;
-			
-			# store feature start/stop
-			$feature_info_igr{$id} = $start;
-			 
-			# store position (+1);
-			for my $i ($start..$end) {
-				$pos_igr {$i} = $f_count_igr;
+		}else{
+	
+			my $start = $vars[3];
+			my $end = $vars[4];
+		
+			my $id = "";
+			for my $i (split(/;/, $vars[8])){
+				if ($i =~ /^ID=(.+)/){
+					$id = $1;
+				}
 			}
+		
+			if ($id ne ""){
+			
+				# store feature index
+				push(@features_igr, $id);
+				++$f_count_igr;
+			
+				# store feature start/stop
+				$feature_info_igr{$id} = $start;
+				 
+				# store position (+1);
+				for my $i ($start..$end) {
+					$pos_igr {$i} = $f_count_igr;
+				}
 					
+			}
+	
 		}
 	
-	}
-	
-}close GFF_IGR;
+	}close GFF_IGR;
+}
 
 # open output file
 open OUT, ">$output" or die " - could not open output file ($output)\n";
