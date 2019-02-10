@@ -1,0 +1,362 @@
+#!/usr/bin/env perl
+
+# find distance between pairs of gene families in genomes from PIRATE 
+
+use strict;
+use warnings;
+use Getopt::Long qw(GetOptions :config no_ignore_case);
+use Pod::Usage;
+
+=head1  SYNOPSIS
+
+ distance_between_gene_families -i /path/to/PIRATE_directory/ -p /path/to/list_of_pairs.txt -o /path/to/output_file 
+
+ Input-Output:	
+ --input	input PIRATE directory [required]
+ --pairs		path to pairs file [required]
+ --output	path to output file [required]
+ 
+ Filtering options:
+ --dosage 	exclude features with a dosage greater than this value 
+ 		[default: off]
+ --list		list of subset of isolates to include in outputs 
+ 		[default: off] 
+ 		
+ General:
+ -h|--help 	usage information
+
+=cut
+
+# option variables
+my $input = "";
+my $output = "";
+my $pairs = "";
+
+my $dosage_threshold = 0;
+
+my $list = "";
+
+my $help = 0;
+
+GetOptions(
+
+	'help|?' 	=> \$help,
+	'input=s' 	=> \$input,
+	'pairs=s' 	=> \$pairs,
+	'output=s'	=> \$output,
+	'list=s' => \$list,
+	'dosage=s' => \$dosage_threshold,
+	
+) or pod2usage(1);
+pod2usage(1) if $help == 1;
+ 
+# file check
+die " - ERROR: no input file specified" if $input eq "";
+die " - ERROR: no output file specified" if $output eq "";
+die " - ERROR: no pairs file specified" if $pairs eq "";
+
+# dosage threshold check
+#print " - WARNING: current dosage threshold maxima is >2. Setting dosage threshold to 1.99\n" if $dosage_threshold >=2;
+#$dosage_threshold = 1.99 if $dosage_threshold >=2;
+
+# parse list file
+my %include = ();
+if ($list ne ""){
+	
+	open LIST, $list or die " - ERROR: could not open list ($list).\n";
+	while(<LIST>){
+	
+		my $line = $_;
+		chomp $line;
+		
+		$include {$line} = 1;
+				
+	}close LIST;
+	
+	# feedback
+	print " - including only the ",scalar(keys(%include)), " isolates from list file (-l)\n"; 
+
+}
+
+# parse gene_family pairs
+my %families = ();
+my %pairs = ();
+open PAIRS, $pairs or die " - ERROR: could not open list ($pairs).\n";
+while(<PAIRS>){
+	
+	my $line = $_;
+	chomp $line;
+	
+	my @vars = split("\t", $line);
+	my $no_vars = @vars;
+	
+	die " - pair file is malformed on line, mus contain 3 columns - $line\n" if ( $no_vars != 3 );
+	
+	# store families of interest
+	$families{$vars[1]} = $vars[0];
+	$families{$vars[2]} = $vars[0];
+	
+	# store pairs
+	$pairs{$vars[0]}{$vars[1]} = 1;
+	$pairs{$vars[0]}{$vars[2]} = 1; 
+	
+}close PAIRS;
+
+# feedback
+my $no_families_org =  keys(%families);
+my $no_pairs = keys(%pairs);
+print " - $no_families_org gene families from $no_pairs pair(s) in input file\n";
+
+# variables
+my %cluster_loci = ();
+my %cluster_number = ();
+my %filtered_number = ();
+my %genome_loci = ();
+my @headers = ();
+my @filtered_clusters = ();
+my @idx = ();
+
+# parse PIRATE.gene_families.tsv store loci gene family info.
+open IN, "$input/PIRATE.gene_families.ordered.tsv" or die " - ERROR: could not open $input/PIRATE.gene_families.ordered.tsv";
+my $total_families = 0;
+my $sub_families = 0;
+my $idx = 19;
+while(<IN>){
+	
+	my $line = $_;
+	chomp $line;
+	
+	my @vars = split(/\t/, $line, -1);
+	
+	if (/^allele_/){
+		
+		@headers = @vars;
+		
+		$idx = 20 if $line =~ /\tno_loci\t/;
+		$idx = 22 if $line =~ /\tcluster_order\t/;
+		
+		# check for samples
+		if ($list ne ""){
+			for (0..$#vars){
+				push(@idx, $_) if $include{$vars[$_]};
+			}
+		}else{
+			for ($idx..$#vars){ push(@idx, $_) }
+		}
+		
+		# sanity check
+		if( scalar(@idx) > 0 ){
+			my $no_samples = scalar(@idx);
+			
+			if ( scalar(keys(%include)) > 0 ){
+				print " - $no_samples samples of ", scalar(keys(%include)), " found in file headers\n";
+			}else{
+				print " - $no_samples samples found in file headers\n";
+			}
+			
+		}else{
+			die " - ERROR: no samples found in $input file headers.\n";
+		}
+		
+	}else{
+	
+		$total_families++;
+		
+		# check header was found
+		die " - ERROR: header did not contain genome information.\n" if scalar(@headers) == 0;
+ 		
+		# variables
+		my $family = $vars[1];
+		
+		# check if family of interest
+		if ( $families{$family} ){
+				
+			my $no_samples = 0; #$vars[6];
+			my $total_loci = 0; #$vars[7];
+		
+			# calculate dosage and number of samples.
+			for my $i (@idx){
+		
+				$no_samples++ if $vars[$i] ne ""; 
+				my @sub_lc = split(/\;/, $vars[$i]);
+				$total_loci += scalar(@sub_lc);
+			
+			}
+		
+			# calculate dosage
+			my $dosage = 0;
+			if ($no_samples > 0){
+				$dosage = $total_loci/$no_samples;
+			}
+		
+			# include gene families in > 0 samples.
+			if ($no_samples > 0){ 
+		
+				$sub_families++;
+			
+				# [optional filter on dosage]
+				if ( ($dosage_threshold == 0) || ($dosage <= $dosage_threshold) ){
+						
+					# loop through all loci for all genomes.
+					for my $i ($idx..$#vars){
+		
+						my $lc = $vars[$i];
+						my @sub_lc = split(/[\(\)\:\;]+/, $lc);
+						my $genome = $headers[$i];
+			
+						for my $lc_sub (@sub_lc){
+							if ($lc_sub ne ""){
+			
+								# store gene family for all groups
+								$cluster_loci{$genome}{$lc_sub} = $family;
+					
+							}
+						}
+					}	
+				}
+		
+				# store no_samples per cluster
+				$cluster_number{$family} = $no_samples;
+		
+			}
+		
+		}
+		
+	}
+
+}close IN;
+
+# feedback
+print " - $sub_families genes of $total_families total genes were present in ", scalar(@idx), " isolates\n";
+print " - ", scalar(@filtered_clusters), " gene clusters filtered due to dosage >$dosage_threshold. These WILL NOT APPEAR in outputs.\n";
+
+# genome list
+my @genomes = @headers[@idx];
+
+# no. families
+my $no_families = keys %cluster_number;
+
+# feedback
+print " - $no_families/$no_families_org families to be identified in GFFs from ", scalar(@genomes), " genomes.\n"; 	
+
+# open output file 
+open OUTPUT, ">$output" or die " - ERROR: could not open output file\n";
+print OUTPUT "pair\tgenome\tmin_dist\n"; # headers
+
+# parse GFFs and store positions and chromosome for each gene
+my %output_hash;
+for my $sample( @genomes ){
+	
+	my %gene_positions;
+	
+	open GFF, "$input/modified_gffs/$sample.gff" or die " - ERROR: $input/modified_gffs/$sample.gff did not open\n";
+	while (<GFF>){
+	
+		my $line = $_;
+		chomp $line;
+	
+		my @line_array = split(/\t/, $line);
+	
+		# variables
+		#my $sta=""; my $end=""; my $gene=""; my $product = ""; my $type = ""; my $seq_end = "";		
+		
+		my $id = "";
+		my $contig = "";
+		my $strand = "";
+		my $start = "";
+		my $end = "";
+	
+		if($line !~ /^##/){
+	
+			if( $line_array[2] eq "gene"){
+				# ignore genes
+			}
+			elsif($line_array[2] =~ /^CDS/){
+			
+				# variables				
+				$contig = $line_array[0];
+				$start = $line_array[3];
+				$end = $line_array[4];
+		
+				# gene ID
+				if($line_array[8] =~ /ID=(${sample}_[^;]+);/){
+					$id = $1;
+				}elsif( $line_array[8] =~ /ID=(${sample}_.+)*/ ){
+					$id = $1;
+				}
+			
+				# process features that are in gene_families file
+				if ( $cluster_loci{$sample}{$id} ){
+				
+					# identify and store contigs for family
+					my $fam = $cluster_loci{$sample}{$id};
+					my @se = sort {$a<=>$b} ($start,$end);
+					push(@{$gene_positions{$fam}{$contig}}, $se[0]);
+					push(@{$gene_positions{$fam}{$contig}}, $se[1]);
+					
+				}	
+			}			
+		}elsif($line =~ /^##FASTA/){
+			last;
+		}
+	}close GFF;
+	
+	# check distance between all pairs and output distance for each per genome
+	for my $p ( keys %pairs ){
+		
+		my @fams = keys( %{$pairs{$p}} );
+		
+		my $f1 = $fams[0]; 
+		my $f2 = $fams[1];
+		
+		# check there is an entry from both families
+		my $min_d = "NA";
+		$min_d = "NP" if !$gene_positions{$f1};
+		$min_d = "NP" if !$gene_positions{$f2};
+		
+		# only process if there are entries for both members of the pair
+		if ( $min_d ne "NP" ){
+		
+			for my $c ( keys %{$gene_positions{$f1}} ){
+			
+				# get positions in contigs $c of pair member $f1
+				my @pos1 = @{$gene_positions{$f1}{$c}};
+				
+				# check there is a matching contig
+				if ( $gene_positions{$f2}{$c} ){
+				
+					# get positions in contigs $c of pair member $f2
+					my @pos2 = @{$gene_positions{$f2}{$c}};
+					
+					# compare all start and end positions within a contig to all other start and end positions of paired family
+					for my $p1 (@pos1){
+					
+						for my $p2 (@pos2){
+						
+							# calculate difference
+							my @diffv = sort {$a<=>$b} ($p1,$p2);
+							my $diff = $diffv[1]-$diffv[0];
+							
+							# check for smaller value
+							if ( $min_d eq "NA" ){
+								$min_d = $diff;
+							}elsif($min_d > $diff ){
+								$min_d = $diff;
+							}
+						}
+					}					
+				}
+				
+			}
+			
+		}
+		
+		# print to file 
+		print OUTPUT "$p\t$sample\t$min_d\n"; 
+		
+	}
+	
+}close OUTPUT;
+
+
+
