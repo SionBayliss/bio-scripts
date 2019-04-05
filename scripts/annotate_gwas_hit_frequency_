@@ -1,0 +1,201 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+use Getopt::Long qw(GetOptions :config no_ignore_case);
+use Pod::Usage;
+
+# convert snp_sites to allele namesannotate and add product information
+
+=head1  SYNOPSIS
+
+ annotate_gwas_hits -i /path/to/file -g /path/to/gff_file -o /path/to/output_file 
+
+ Input-Output:	
+ --input		input pyseer annotated output variants file [required]
+ --output	path to output file [required] 
+ --variants	input variant file [required]
+ --phenotype binary phenotype file [required]
+
+ General:
+ -h|--help 		usage information
+ 
+=cut
+
+# option variables
+my $input = "";
+my $output = "";
+my $variants = "";
+my $pheno = "";
+
+my $help = 0;
+
+GetOptions(
+
+	'help|?' 	=> \$help,
+	'input=s' 	=> \$input,
+	'phenotypes=s' => \$pheno,
+	'output=s'	=> \$output,
+	'variants=s' => \$variants,
+) or pod2usage(1);
+pod2usage(1) if $help == 1;
+
+ 
+# file check
+die " - ERROR: no input file specified" if $input eq "";
+die " - ERROR: no output file specified" if $output eq "";
+die " - ERROR: no variants file specified" if $variants eq "";
+die " - ERROR: no phenotype file specified" if $pheno eq "";
+
+# parse phenotypes
+my %phenotypes = ();
+my $pheno_name = "";
+my $pheno_count = 0;
+
+my $l_count  = 0;
+open P, $pheno or die $!;
+while (<P>){
+
+	my $line  = $_;
+	chomp $line;
+	
+	my @line = split("\t", $line, -1);
+	
+	++$l_count;
+	if($l_count == 1){
+		$pheno_name = $line[1];	
+	}else{
+		$phenotypes{$line[0]}="2" if $line[1] == 1;
+		$phenotypes{$line[0]}="1" if $line[1] == 0;
+		++$pheno_count if $line[1] == 1;
+	}
+	
+}close P;
+
+# feedback
+my $sample_no = scalar(keys(%phenotypes));
+my $neg_count = $sample_no - $pheno_count;
+print " - $sample_no samples of which $pheno_count are $pheno_name\n";
+
+# parse variants and calculate frequency
+open V, $variants or die $!;
+my @headers = ();
+my @header_idx = ();
+my $total_genomes = 0;
+my %counts = ();
+$l_count = 0;
+while (<V>){
+
+	my $l  = $_;
+	chomp $l;
+	
+	my @line = split("\t", $l, -1);
+	
+	++$l_count;
+	if($l_count == 1){
+	
+		@headers = @line;
+		 
+		# check all samples are in headers
+		my $found = 0;
+		my %checkhash = %phenotypes;
+		for my $i (1..$#line){
+			
+			if ( $phenotypes{$line[$i]} ){
+				++$found; 
+			 	$checkhash{$line[$i]} = "found";
+			 	push(@header_idx, $i);
+			}	 
+		} 		
+		
+		# calc total number of genomes
+		$total_genomes = scalar(@header_idx);
+		
+		# feedback
+		if ( $sample_no != $found ){
+		
+			# recalculate sample numbers
+			$sample_no = $found;
+			$pheno_count = 0;
+				
+			for (keys %checkhash){ 
+				print " - ERROR: sample $_ not in header line\n" if $checkhash{$_} ne "found" ;
+				++$pheno_count if $phenotypes{$_} == 2;
+			}
+			die " - ERROR: Samples in gff directory not found in header line\n";
+			
+			$neg_count = $sample_no - $pheno_count;
+			
+			# feedback
+			print " - $sample_no samples in variant headers of which $pheno_count are $pheno_name\n";
+			
+		}
+
+	}else{
+		
+		# count invasive
+		my $p_count_1_1 = 0;
+		my $p_count_0_1 = 0;
+		for my $i ( @header_idx ){
+		
+			# sanity check
+			die " - no phenotype for " if (!$phenotypes{$headers[$i]});
+			
+			# phenotype
+			my $p = $phenotypes{ $headers[$i] };
+			
+			# count phenotypes (assume binary 1/0);
+			if ( $line[$i] == 1 ){
+				$p_count_1_1++ if $p == 2;
+				$p_count_0_1++ if $p == 1;
+			}
+			
+			#print "$p\t$p_count_1_1\t$p_count_1_0\n";
+		
+		}
+		
+		my $p_count_1_0 = $pheno_count - $p_count_1_1;
+		my $p_count_0_0 = $neg_count - $p_count_0_1;
+		
+		# sanity check 
+		die " - ERROR: present in phenotype 1 ($p_count_1_1) and absent in phenotype 1 ($p_count_1_0) does not add up to the total number of samples of phenotype 1 ($pheno_count)\n" if ($p_count_1_1 + $p_count_1_0) != $pheno_count;
+				
+		# store output lines
+		$counts{$line[0]} = "$p_count_1_1\t$p_count_1_0\t$p_count_0_1\t$p_count_0_0";
+	
+	}
+	
+}close V;
+
+# open output file
+open O, ">$output" or die $!;
+
+# append frequency to annotated pyseer output file
+open I, $input or die $!;
+while(<I>){
+
+	my $line  = $_;
+	chomp $line;
+	
+	my @vars = split(/\t/, $line, -1);
+	
+	# comments
+	if (/#/){
+		print O "$line\n";
+	}
+	# add aditional headers
+	elsif( $vars[0] eq "loci" ){
+		print O "$line\tpresent_pheno_1\tabsent_pheno_1\tpresent_pheno_0\tabsent_pheno_0\n";
+	}
+	# add counts
+	else{
+		# sanity check
+		die " - no counts found for $vars[0]" if !$counts{$vars[0]};
+		
+		# print to file
+		print O "$line\t$counts{$vars[0]}\n";
+		
+		
+	}
+
+}close I;

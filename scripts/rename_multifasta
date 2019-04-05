@@ -1,0 +1,123 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+
+use Getopt::Long qw(GetOptions);
+use Pod::Usage;
+use Cwd 'abs_path';
+use File::Basename;
+use Text::Wrap;
+
+# rename multifasta using list
+
+=head1  SYNOPSIS
+
+ subset_multifasta -i /path/to/fasta -l /pathto/list -o /path/to/output
+
+ Input/Output:
+ -i|--input		input multifasta file [required]
+ -l|--list		tab delimited list of samples, second 
+ 			column contains new sample name [required]
+ -o|--output		output file [required]	
+ 
+ -h|--help		usage information
+ 
+=cut
+
+# switch off buffering
+$|++;
+
+# command line options
+my $help = 0;
+
+my $list = "";
+
+my $input_file = '';
+my $output_dir = '';
+
+GetOptions(
+
+	'help|?' 	=> \$help,
+	'input=s' 	=> \$input_file,
+	'list=s' 	=> \$list,
+	'output=s'	=> \$output_dir,
+			
+) or pod2usage(1);
+pod2usage(1) if $help;
+
+# check for mandatory input arguments
+pod2usage( {-message => q{input fasta is a required argument}, -exitval => 1, -verbose => 1 } ) if $input_file eq ''; 
+pod2usage( {-message => q{list is a required argument}, -exitval => 1, -verbose => 1 } ) if $list eq ''; 
+pod2usage( {-message => q{output is a required argument}, -exitval => 1, -verbose => 1 } ) if $output_dir eq '';
+
+# expand input and output files/directories
+$input_file = abs_path($input_file);
+die "Input file not found.\n" unless -f "$input_file";
+
+# [optional] parse list
+my %shash = ();
+my %rename = ();
+if ( $list ne "" ){
+
+	open LIST, "$list" or die " - ERROR: could not open list - $list\n";
+	while (<LIST>){
+	
+		if(/^(\S+)\t(\S+)/){
+			$shash{$1} = 1;
+			$rename{$1} = $2;
+		}
+		
+	}close LIST;
+	
+	# feedback
+	my $no_sam = scalar(keys %shash);
+	print " - $no_sam samples in list (--list) will be included in output\n";
+		
+}
+my @samples = keys(%shash);
+
+# open fasta file 
+open OUT, ">$output_dir" or die " - ERROR: could not open output file\n";
+
+# parse fasta file
+my $store = 0;
+open FILE, "$input_file" or die "$input_file file did not open\n";
+while (<FILE>){
+	
+	if(/^>(.+)$/ ){
+		
+		my $header = $1;
+		
+		# print and store if matching
+		if ($shash{$header}){
+			$store = 1;
+			$shash{$header} = 2;
+			
+			print OUT ">$rename{$1}\n";
+		}else{
+			$store = 0;
+		}
+		
+		
+		
+	}elsif(/^([ATCGN\-]+)$/){
+		
+		print OUT "$1\n" if $store == 1; 
+	}
+}
+
+# check all samples found
+my $missing = 0;
+for my $k ( keys %shash ){
+
+	if ($shash{$k} == 1){
+		print " - WARNING: $k missing for input file\n";
+		++$missing;
+	}
+} 
+
+# feedback
+print " - $missing sequences missing from input file\n";
+
+exit

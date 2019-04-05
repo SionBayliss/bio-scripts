@@ -201,7 +201,7 @@ while(<INPUT>){
 			$id = sprintf("%s\_%s\_%s\_%s", $chrom, $pos, $alt, $ref);
 		}
 	 
-		# only include isoltes in list
+		# only include isolates in list
 		my @outline = (); 			
 		for my $t ( @include ){ 
 			push(@outline, $line[$t]); 
@@ -221,7 +221,7 @@ while(<INPUT>){
 		}
 		
 		# store variants per pattern
-		$patterns{$pattern_count} {$id} = 1; 
+		$patterns{$pattern_number} {$id} = 1; 
 		
 		# feedback
 		if ( $no_sites%1000 == 0 ){

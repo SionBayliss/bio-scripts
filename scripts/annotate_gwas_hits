@@ -12,10 +12,10 @@ use Pod::Usage;
  annotate_gwas_hits -i /path/to/file -g /path/to/gff_file -o /path/to/output_file 
 
  Input-Output:	
- -i|--input		input pyseer_output file [required]
- -o|--output	path to output file [required] 
- -p|--pirate	pirate gene famililes file [required]
- -c|--column	column containing snps to convert [default: 0] 
+ --input		input pyseer_output file [required]
+ --output	path to output file [required] 
+ --pirate	pirate gene famililes file [required]
+ --column	column containing snps to convert [default: 0] 
  --gff-core		pirate gff file [optional]
  --gff-igr		piggy gff file [optional]
  
@@ -31,6 +31,7 @@ my $gff = "";
 my $gff_igr = "";
 my $column = 0;
 my $pirate = "";
+my $pheno = "";
 
 my $help = 0;
 
@@ -42,7 +43,7 @@ GetOptions(
 	'gff-igr=s' 	=> \$gff_igr,
 	'column=i'	=> \$column,
 	'pirate=s' => \$pirate,
-	
+	'phenotypes' => \$pheno,
 	'output=s'	=> \$output,
 	
 ) or pod2usage(1);

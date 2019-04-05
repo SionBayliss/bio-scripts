@@ -1,0 +1,115 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+use Getopt::Long;
+use Pod::Usage;
+
+# setup path sampling analysis -> produce xml
+
+=head1  SYNOPSIS
+
+ beast_setup_pathsampling -i /path/to/input.xml -o /path/to/output.xml - 
+ 
+ Input/Output:
+ -i|--input		input xml [required]
+ -o|--output	output xml [required]	
+ 
+ # options
+ 	'alpha=f' => \$alpha,
+	'nrOfSteps=o' => \$nrOfSteps,
+	'deleteOldLogs' => \$deleteOldLogs,
+	'rootdir=s' => \$rootdir,
+	'chainLength=i' => \$chainLength, 
+	'burnInPercentage=i' => \$burnInPercentage,
+	'preBurnin=i' => \$preBurnin,
+	'doNotRun' => \$doNotRun,
+ 
+ General:
+ -h|--help		usage information
+ 
+=cut
+
+# command line options
+my $input = '';
+my $output = '';
+
+my $alpha = "0.3";
+my $nrOfSteps = "10";
+my $deleteOldLogs = 0;
+my $rootdir = "/tmp";
+my $chainLength = 100000;
+my $burnInPercentage = "50";
+my $preBurnin = 100000;
+my $doNotRun = 0;
+
+my $help = 0;
+
+GetOptions(
+
+	'help|?' 	=> \$help,
+	
+	'input=s' 	=> \$input,
+	'output=s'	=> \$output,
+	
+	'alpha=f' => \$alpha,
+	'nrOfSteps=o' => \$nrOfSteps,
+	'deleteOldLogs' => \$deleteOldLogs,
+	'rootdir=s' => \$rootdir,
+	'chainLength=i' => \$chainLength, 
+	'burnInPercentage=i' => \$burnInPercentage,
+	'preBurnin=i' => \$preBurnin,
+	'doNotRun' => \$doNotRun,
+	
+) or pod2usage(1);
+pod2usage(1) if $help;
+pod2usage( {-message => q{ - ERROR: input list is a required argument}, -exitval => 1, -verbose => 1 } ) if $input eq ''; 
+pod2usage( {-message => q{ - ERROR: output file is a required argument}, -exitval => 1, -verbose => 1 } ) if $output eq ''; 
+
+# convert true false
+if ($doNotRun == 1){
+	$doNotRun = 'true';
+}else{
+	$doNotRun = 'false';
+} 
+
+if ($deleteOldLogs == 1){
+	$deleteOldLogs = 'true';
+}else{
+	$deleteOldLogs = 'false';
+} 
+
+# open output
+open OUTPUT, ">$output" or die " ERROR: could not open output file\n";
+
+# parse input and print to output
+my $sample_name = "";
+open INPUT, "$input" or die " - ERROR: input file would not open\n";
+while (<INPUT>){
+
+	my $line = $_;
+	chomp $line;
+	
+	if (/\<run/){
+	
+		# add run lines before mcmc 
+		my $runline = sprintf("<run  spec='beast.inference.PathSampler' nrOfSteps='%s' alpha='%s' deleteOldLogs='%s' rootdir='%s' chainLength='%s' burnInPercentage='%s' preBurnin='%s' doNotRun='%s'>" , $nrOfSteps, $alpha, $deleteOldLogs, $rootdir, $chainLength, $burnInPercentage, $preBurnin, $doNotRun);
+		print OUTPUT "$runline\n";
+		print OUTPUT "cd \$(dir)\n";
+		print OUTPUT "java -cp \$(java.class.path) beast.app.beastapp.BeastMain \$(resume/overwrite) -java -seed \$(seed) beast.xml\n";
+
+		# rename run to mcmc 
+		my $outline = $line;
+		$outline =~ s/\<run/\<mcmc/;
+		print OUTPUT "$outline\n";
+		
+	}elsif(/\<\/run\>/){
+	
+		# rename run to mcmc 
+		print OUTPUT "\<\/mcmc\>\n";
+		print OUTPUT "\<\/run\>\n";
+			
+	}else{
+		print OUTPUT "$line\n";
+	}
+}

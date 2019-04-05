@@ -1,0 +1,77 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+use Getopt::Long;
+use Pod::Usage;
+
+# account for ascertainment bias (i.e. add constant sites) to a beats xml generated using only variable sites
+
+=head1  SYNOPSIS
+
+ beast_ascertainment_bias -i /path/to/input.xml -o /path/to/output.xml - 
+ 
+ Input/Output:
+ -i|--input		input xml [required]
+ -o|--output	output xml [required]	
+ -c|--constant	comma delimited constant site numbers (ACGT) [required]
+ 
+ General:
+ -h|--help		usage information
+ 
+=cut
+
+# command line options
+my $input = '';
+my $output = '';
+my $constant = '';
+
+my $help = 0;
+
+GetOptions(
+
+	'help|?' 	=> \$help,
+	
+	'input=s' 	=> \$input,
+	'output=s'	=> \$output,
+	
+	'constant=s' => \$constant,
+	
+) or pod2usage(1);
+pod2usage(1) if $help;
+pod2usage( {-message => q{ - ERROR: input list is a required argument}, -exitval => 1, -verbose => 1 } ) if $input eq ''; 
+pod2usage( {-message => q{ - ERROR: output file is a required argument}, -exitval => 1, -verbose => 1 } ) if $output eq ''; 
+pod2usage( {-message => q{ - ERROR: constants are a required argument}, -exitval => 1, -verbose => 1 } ) if $constant eq ''; 
+
+# check constant sites is formatted correctly
+die " - ERROR: incorrectly formatted constant site numbers" unless scalar(split(/\,/,$constant)) ==4;
+my $values = join(" ", split(/\,/,$constant));
+
+# open output
+open OUTPUT, ">$output" or die " ERROR: could not open output file\n";
+
+# parse input and print to output
+my $sample_name = "";
+open INPUT, "$input" or die " - ERROR: input file would not open\n";
+while (<INPUT>){
+
+	my $line = $_;
+	chomp $line;
+	
+	if (/\<data id\=\"(\S+)\"/){
+		
+		$sample_name = $1;
+		$line =~ s/data id\=\"$sample_name/data id\=\"$sample_name\_Original/;
+		print OUTPUT "$line\n";
+		
+	}elsif(/\<\/data\>/){
+		
+		print OUTPUT "$line\n";
+		my $outline = sprintf("    \<data id=\"%s\" spec=\'FilteredAlignment\' filter=\'-\' data=\'\@%s\' constantSiteWeights=\"%s\"\>", $sample_name, sprintf("%s\_Original", $sample_name), $values);
+		print OUTPUT "$outline\n";
+		print OUTPUT "                    </data>\n";
+		
+	}else{
+		print OUTPUT "$line\n";
+	}
+}

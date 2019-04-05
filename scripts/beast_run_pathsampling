@@ -1,0 +1,178 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+use Getopt::Long;
+use Pod::Usage;
+
+use File::Basename;
+use Cwd 'abs_path';
+
+my $script_path = abs_path(dirname($0));
+
+# run pathsampling analysis on all xml files in directory
+
+=head1  SYNOPSIS
+
+ beast_run_pathsampling -i /path/to/input.xml -o /path/to/output.xml - 
+ 
+ Input/Output:
+ -i|--input		input directory containing xml files [required]
+ -o|--output	output directory [required]	
+ 
+ # options
+ 	'alpha=f' => \$alpha,
+	'nrOfSteps=o' => \$nrOfSteps,
+	'deleteOldLogs' => \$deleteOldLogs,
+	'rootdir=s' => \$rootdir,
+	'chainLength=i' => \$chainLength, 
+	'burnInPercentage=i' => \$burnInPercentage,
+	'preBurnin=i' => \$preBurnin,
+	'doNotRun' => \$doNotRun,
+	
+ --beast	beast command, should look like:
+ java -Djava.library.path=/path/to/beast2/lib/ -cp /path/to/.beast/2.5/BEASTLabs/lib/BEASTlabs.addon.jar:/path/to/.beast/2.5/MODEL_SELECTION/lib/MODEL_SELECTION.addon.jar:/path/to/opts/beast/lib/beast.jar beast.app.beastapp.BeastMain -threads 4 -beagle -beagle_CPU
+ 
+ General:
+ -h|--help		usage information
+ 
+=cut
+
+# command line options
+my $input = '';
+my $output = '';
+
+my $alpha = "0.3";
+my $nrOfSteps = "10";
+my $deleteOldLogs = 0;
+my $chainLength = 100000;
+my $burnInPercentage = "50";
+my $preBurnin = 100000;
+my $doNotRun = 0;
+
+my $beast = "";
+my $ps_off = 0;
+
+my $help = 0;
+
+GetOptions(
+
+	'help|?' 	=> \$help,
+	
+	'input=s' 	=> \$input,
+	'output=s'	=> \$output,
+	
+	'alpha=f' => \$alpha,
+	'nrOfSteps=o' => \$nrOfSteps,
+	'deleteOldLogs' => \$deleteOldLogs,
+	'chainLength=i' => \$chainLength, 
+	'burnInPercentage=i' => \$burnInPercentage,
+	'preBurnin=i' => \$preBurnin,
+	'doNotRun' => \$doNotRun,
+	
+	'beast=s' => \$beast,
+	'ps-off' => \$ps_off,
+	
+) or pod2usage(1);
+pod2usage(1) if $help;
+pod2usage( {-message => q{ - ERROR: input list is a required argument}, -exitval => 1, -verbose => 1 } ) if $input eq ''; 
+pod2usage( {-message => q{ - ERROR: output file is a required argument}, -exitval => 1, -verbose => 1 } ) if $output eq ''; 
+pod2usage( {-message => q{ - ERROR: beast command is a required argument}, -exitval => 1, -verbose => 1 } ) if $beast eq ''; 
+
+# find all files in directory
+print "$input\n";
+my @files = glob "$input/*.xml";
+for (0..$#files){
+  $files[$_] =~ s/\.xml$//;
+  $files[$_] =~ s/$input\///;
+}
+print " - ", scalar(@files), " in input directory\n";
+
+# make output directory for each xml
+for (0..$#files){
+	unless ( -e "$output/$files[$_]" ){
+		mkdir("$output/$files[$_]") or die " - ERROR: could not make $output/$files[$_]\n";
+	}
+}
+
+# make input line 
+my $runline = sprintf("$script_path/beast_setup_pathsampling --nrOfSteps '%s' --alpha '%s' --chainLength '%s' --burnInPercentage '%s' --preBurnin '%s'" , $nrOfSteps, $alpha, $chainLength, $burnInPercentage, $preBurnin);
+
+# convert true false to args
+if ($doNotRun == 1){
+	$runline = $runline." --doNotRun";
+}
+if ($deleteOldLogs == 1){
+	$runline = $runline." --deleteOldLogs";
+}
+
+# make xml files for all xml files to analyse
+print " - creating xml files for analysis\n"; 
+for (0..$#files){
+
+	# file path
+	my $out_path = "$output/$files[$_]\/";
+	my $out_xml = "$output/$files[$_].xml";
+	my $in_xml = "$input/$files[$_].xml";
+	
+	# command
+	my $command = $runline." --input $in_xml --output $out_xml --rootdir $out_path";
+	
+	# run command
+	system($command);	
+	die " - ERROR: beast_setup_pathsampling failed on $files[$_]\n" if $?; 
+	
+}
+
+# run pathsampling in serial 
+print " - pathsampling:\n"; 
+for (0..$#files){
+
+	print " -> running ", $files[$_], "\n";
+
+	# file path
+	my $in_xml =  "$output/$files[$_].xml";
+	my $log = "$output/$files[$_]\/path.log";
+	
+	# create command - store log file of ML
+	my $b_command = "$beast $in_xml > $log 2> $log";
+	
+	# run command
+	if ($ps_off == 0){
+		system($b_command);	
+		die " - ERROR: beast pathsampling failed on $files[$_]\n" if $?; 
+	}
+}
+
+# collect marginal L from log files
+
+# feedback
+print " - creating log file\n";
+
+# open summary
+open SUM, ">$output/summary.tab" or die " - ERROR: could not open $output/summary.tab\n";
+print SUM "Sample\tMarginal L\n"; # headers
+
+# collect from all files
+for (0..$#files){
+
+	# paths
+	my $s = $files[$_];
+	my $log = "$output/$files[$_]\/path.log";
+	my $marginalL = "NA";
+	
+	# check log file for marginal L
+	open LOG, "$log" or print " - ERROR: no log file for $s\n";
+	while(<LOG>){
+	
+		if (/marginal L estimate = (\S+)/){
+			$marginalL = $1;
+		}	
+	}
+	
+	print SUM "$s\t$marginalL\n";
+}
+
+print " - completed\n";
+print " - WARNING: Manually check that the runs have converged over $nrOfSteps steps - otherwise increase --nrOfSteps\n";
+
