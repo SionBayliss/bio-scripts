@@ -36,6 +36,9 @@ use Cwd 'abs_path';
  --sim-af		min allelic frequency for variants used for similarity matrix [default: --af] 
  --inv-freq		total frequency of two alleles to be considered inverse alleles [default: 0.98]
  
+ TreeWAS options:
+ --run	path to treeWAS script [WIP]
+ 
  General options:
  --add-prefix	add prefix to pyseer inputs [default: off]
  -h|--help 	usage information
@@ -67,6 +70,7 @@ my $inv_freq = 0.98;
 my $add_prefix = "";
 
 my $n_sites = 0;
+my $run = "";
 
 my $help = 0;
 
@@ -95,6 +99,8 @@ GetOptions(
 	'inv-freq=f' => \$inv_freq,
 	'add-prefix=s' => \$add_prefix,
 	
+	'run=s' => \$run,
+	
 	'help|?' 	=> \$help,
 
 ) or die pod2usage(1);
@@ -104,7 +110,7 @@ pod2usage(1) if $help;
 die " - ERROR: must specify phenotype file with --metadata\n" if $phenotype eq "";
 die " - ERROR: must specify output directory with --output\n" if $output eq "";
 die " - ERROR: must specify PIRATE or VCF file with --vcf/--pirate\n" if ( ($vcf eq "") && ($pir eq "") );
-die " - ERROR: must specify PIRATE script path --path\n" if ( ($path eq "") && ($pir ne "") );
+die " - ERROR: must specify PIRATE script path --scripts\n" if ( ($path eq "") && ($pir ne "") );
 die " - ERROR: must specify allelic frequency with --af\n" if $af eq "";
 
 # find path of bio-scripts 
@@ -480,10 +486,16 @@ push(@suff_pe, "c,a,aa,d,ff") if ($pir ne "");
 push(@suff_pe, "igr") if ($pig ne "");
 my $suff_pe = join(",", @suff_pe);
 
-# run command
-system("$script_path/combine_variants_for_pyseer $vcf_in $pe_in --suffix-vcf $suff_vcf --suffix-pres $suff_pe --list $inlist -o $output/combined_variants.$af.tab | tee -a $log"); 
-
+# run combine variants
+my $input_opts = "";
+$input_opts = "$input_opts --suffix-vcf $suff_vcf" if $suff_vcf ne "";
+$input_opts = "$input_opts --suffix-pres $suff_pe" if $suff_pe ne "";
+system("$script_path/combine_variants_for_pyseer $vcf_in $pe_in --list $inlist -o $output/combined_variants.$af.tab $input_opts | tee -a $log"); 
 die " - ERROR: combining outputs failed\n" if $?;
+
+# convert to patterns
+print " - convert to patterns\n";
+system("$script_path/variants_to_patterns -i $output/combined_variants.$af.tab -o $output/combined_patterns.$af.tab -c  $output/combined_pattern_coversion.$af.tab --fl $af_low --fh $af_high -l $inlist | tee -a $log");
 
 # feedback
 print_log " - complete\n\n";

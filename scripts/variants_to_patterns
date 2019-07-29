@@ -136,7 +136,7 @@ while(<INPUT>){
 		
 		}else{
 			
-			for my $t ( $ind..$#headers ){ push(@include, $t) }; 	
+			for my $t ( $ind..$#headers ){ push(@include, $t);}; 	
 		
 		}
 		
@@ -168,13 +168,13 @@ while(<INPUT>){
 		
 		# headers for conversion file 
 		print CONV "\# $no_samples samples\npattern_id\tvar_count\tno_samples\tvariants\n";
-		
+				
 	}
 	elsif(/^#/){
 		print OUTPUT "$l\n";
 	}elsif(/^\S+\t/){
 	
-		$no_sites++;	
+		$no_sites++;
 		
 		# sanity check
 		die " - ERROR: No samples found in header line.\n" if $no_samples == 0;
@@ -202,9 +202,12 @@ while(<INPUT>){
 		}
 	 
 		# only include isolates in list
-		my @outline = (); 			
+		my @outline = (); 
+			
 		for my $t ( @include ){ 
-			push(@outline, $line[$t]); 
+			#print scalar @include, "\t", scalar(@line), "\t";
+			#print "$t - $line[$t]\n";
+			push( @outline, $line[$t] ); 
 		}
 	
 		# make pattern

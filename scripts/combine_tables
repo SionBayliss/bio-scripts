@@ -1,0 +1,93 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings qw(all);
+use File::Basename;
+use Getopt::Long qw(GetOptions :config no_ignore_case);
+use Pod::Usage;
+
+# combine multiple summary tables - expects first column to be id
+
+=head1  SYNOPSIS
+
+	combine_tables -i /path/to/abricate_file -o /path/to/output_file
+
+ Input/output:
+ -i|--input 	input abricate outputs [required, takes multiple]
+ -o|--output 	annotated input file for output [required] 
+ 
+=cut
+
+# command line options
+my @input = ();
+my $output = '';
+
+my $help = 0;
+ 
+pod2usage(1) if scalar(@ARGV) == 0;
+GetOptions(
+
+	'i|input=s' => \@input,
+	'output=s'	=> \$output,
+	
+	'help|?' 	=> \$help,
+ 
+) or die pod2usage(1);
+pod2usage(1) if $help;
+
+# Parse table
+my %s_list = ();
+my @vals = ();
+for my $i (@input){
+
+	my $count = 0;
+	my @headers = ();
+	open TABLE, "$i" or die " - could not open $i\n";
+	while(<TABLE>){
+	
+		++$count;
+		
+		my $line=$_;
+		chomp $line;
+		
+		my @vars = split(/\t/, $line, -1);
+		
+		if ($count == 1){
+			
+			@headers = @vars;
+	
+		}else{
+		
+			my $sample = $vars[0];
+			for my $f (0..$#vars){				
+				$s_list{$sample}{$headers[$f]} = $vars[$f];
+			}
+	
+		}
+	}close TABLE;
+	
+	# add headers
+	push(@vals, @headers[1..$#headers]);
+	
+}
+
+# print file
+open OUT, ">$output" or die $!;
+print OUT sprintf("%s\t%s\n", "sample", join("\t", @vals));
+
+for my $k1 ( sort keys %s_list ){
+	
+	my @o = ($k1);
+	
+	for my $k2 (@vals){
+		
+		if ($s_list{$k1}{$k2}){
+			push(@o,$s_list{$k1}{$k2});
+		}else{
+			push(@o,"0");
+		}
+	}
+	
+	print OUT join("\t",@o)."\n";	
+}
+

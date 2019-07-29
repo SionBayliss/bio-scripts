@@ -15,7 +15,7 @@ use Cwd 'abs_path';
 	
 	-i 	path to input directory containing gffs
 	-l	single column txt file of samples to include 
-	-a 	arguements for abricate
+	-a 	arguments for abricate
 	-o 	output directory
 	-p 	output summary prefix
 

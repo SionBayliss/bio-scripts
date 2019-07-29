@@ -16,7 +16,7 @@ use File::Basename;
  Input variants:
  --vcf		one of more vcf files [required] 
  --pres		one or more presence_absence files [required] 
- --output 	output directory [required] 
+ --output 	output directory [required]
  --list	sample list [required]
  
  General options:
@@ -95,7 +95,7 @@ for (@samples) {
 };
 
 # open output
-open OUT, ">$output" or die " - ERROR: could ot open output file\n";
+open OUT, ">$output" or die " - ERROR: could not open output file\n";
 print OUT "variant\t".join("\t", @samples)."\n";
 
 # total variants

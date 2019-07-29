@@ -20,8 +20,8 @@ use File::Basename;
  
  Filter options:
  -t|--taxonid	output isolates with taxon id [default: off]
- -s|--status	status of assembly, options: Complete Genome, Contig, Scaffold, all
- 			[default: Complete Genome] 
+ -s|--status	status of assembly, options: Complete Genome, Contig, 
+ 		Scaffold, all [default: Complete Genome] 
  -n|--number	max number of samples to download [default: off]
  -d|--download	toggle download of isolates [default: on]	
  
@@ -60,7 +60,6 @@ GetOptions(
 pod2usage(1) if $help;
 
 # check dependencies
-
 die " - ERROR: output directory not specified\n" if $output_dir eq "";
 
 # make output directory
@@ -85,10 +84,12 @@ print " - Downloading of isolates is disabled, only creating summary\n" if $no_d
 # open output file
 open SUM, ">$output_dir/summary.tab" or die " - ERROR: output summary ($output_dir/summary.tab) did not open.\n";
 
+
 # parse input file - store relevant info
 my $count = 0;
+my $file_type = "NA";
 print " - 0 samples downloaded";
-open IN, $input or die " - ERROR: input file did not open\n";
+open IN, $input or die " - ERROR: input file did not open.\n";
 while(<IN>){
 	
 	my $line = $_;
@@ -99,19 +100,39 @@ while(<IN>){
 	# headers
 	if(/^# assembly/){
 		print SUM "id\t$line\n";
+		$file_type = "rs";
+	}
+	if(/^#Organism/){
+		print SUM "id\t$line\n";
+		$file_type = "gn";
 	}elsif(/^#/){
 	# store info per matching isolate
 	}else{
-	
-		# variables
-		my $acc = $vars[0]; # accession
-		my $ftp = $vars[19]; # ftp
-		my $excluded = $vars[20]; # excluded
-		my $tax_id = $vars[6]; # taxonid
-		my $species = $vars[7]; # species
-		my $type = $vars[11]; # type
-		my $strain = $vars[8]; # strain
-	
+		
+		# set vars
+		my $acc = ""; my $ftp = ""; my $excluded = ""; my $tax_id = ""; my $species = ""; my $type = ""; my $strain= "";
+		
+		# assign appropriate variables
+		if ($file_type eq "rs"){ # refseq
+			$acc = $vars[0]; # accession
+			$ftp = $vars[19]; # ftp
+			$excluded = $vars[20]; # excluded
+			$tax_id = $vars[6]; # taxonid
+			$species = $vars[7]; # species
+			$type = $vars[11]; # type
+			$strain = $vars[8]; # strain
+		}elsif($file_type eq "gn"){ # ncbi genome table 
+			$acc = $vars[7]; # accession
+			$ftp = $vars[18]; # ftp # genebank
+			$excluded = ""; # excluded
+			$tax_id = $vars[2]; # taxonid # cladeID
+			$species = $vars[0]; # species
+			$type = $vars[17]; # type
+			$strain = $vars[1]; # strain
+		}else{
+			die " - ERROR: format of input file not recognised\n";
+		}
+			
 		# filter on taxon id and assembly status 
 		if ( (($taxid == 0) || ($taxid == $tax_id)) && ( ($type eq $status) || ($status eq "all") ) && ($excluded eq "") ){
 		
@@ -122,21 +143,27 @@ while(<IN>){
 			# create isolate name from accession and strain info [optional]
 			my $strain_out = "";
 			if ( $strain ne "" ){
-				$strain =~ /strain=(.+)/;
-				$strain_out = $1;	
+			
+				$strain_out = $strain unless $strain eq " ";
+				if ( $strain =~ /strain=(.+)/ ){
+					$strain_out = $1;		
+				}		
+				
 				$strain_out =~ s/\-/\_/g;
 				$strain_out =~ s/\s+/\_/g;
-				$strain_out =~ s/\//\_/g;			
+				$strain_out =~ s/\//\_/g;
 			}
-			 
+			
 			my $iso_name = "$acc";
+			$iso_name =~ s/\s+//g;
 			$iso_name = "$iso_name\-$strain_out" if ( ( $add_strain == 1 ) && ( $strain_out ne "" ) );
 			$iso_name =~ s/\./_/g;
 			
+			my $outfile = "$output_dir/$iso_name.fasta";			
 			# run ftp on isolate
 			if ($no_download == 0){
 				unlink("$output_dir/$iso_name.fasta") if -f "$output_dir/$iso_name.fasta";
-				`wget -O - $ftp/$file_name 2>/dev/null | gunzip -c > $output_dir/$iso_name.fasta`;  
+				`wget -O - $ftp/$file_name 2>/dev/null | gunzip -c  >  $outfile`;  
 			}
 			
 			if( !($?) || ($no_download == 0) ){

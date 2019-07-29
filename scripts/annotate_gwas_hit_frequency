@@ -5,7 +5,7 @@ use warnings;
 use Getopt::Long qw(GetOptions :config no_ignore_case);
 use Pod::Usage;
 
-# convert snp_sites to allele namesannotate and add product information
+# convert snp_sites to allele names, annotate and add product information
 
 =head1  SYNOPSIS
 

@@ -16,6 +16,16 @@ use Pod::Usage;
  -i|--input 	input abricate outputs [required]
  -o|--output 	annotated input file for output [required] 
  
+ Options:
+ -b|--binary	output binary present/absent [default: on]
+ --perid		output percentage id [default: off]
+ --percov		output percentage coverage [default: off]
+ 
+ Filter: 
+ --filt-id		remove overall %id values below this % value [default: off]
+ --filt-cov		remove overall % coverage values below this % value [default: off]
+ --pre-id		filter individual hits on %id [default: --filt-id] 
+ 
  Usage:
  -q|--quiet	switch off verbose
  -h|--help 	usage information
@@ -29,50 +39,147 @@ my $output = '';
 my $quiet = 0;
 my $help = 0;
 
+my $binary = 1;
+my $perid = 0;
+my $percov = 0;
+
+my $filt_id = 0;
+my $filt_cov = 0;
+my $pre_id = 0;
+ 
 pod2usage(1) if scalar(@ARGV) == 0;
 GetOptions(
 
-	'input=s' 	=> \$input,
+	'i|input=s' 	=> \$input,
 	'output=s'	=> \$output,
 	
 	'quiet'	=> \$quiet,	
 	'help|?' 	=> \$help,
 
+	'binary' => \$binary,
+	'perid'  => \$perid,		
+	'percov' => \$percov,		
+	 
+	 'filt-id=f' => \$filt_id,	
+	 'filt-cov=f' => \$filt_cov,
+	 'pre-id' => \$pre_id,
+ 
 ) or die pod2usage(1);
 pod2usage(1) if $help;
 
 # check inputs
 die "ERROR: provide input abricate file\n" if $input eq "";
 die "ERROR: provide output file path\n" if $output eq "";
+die "ERROR: can not report on both coverage and identity\n" if (($perid == 1) && ($percov == 1));
 
+# set default 
+$pre_id = $filt_id if ( ($filt_id > 0) && ( $pre_id == 0 ) );
 
-# Parse table and add resistance column.
+# switch off binary if $perid or $percov 
+$binary = 0 if ( $perid || $percov );
+
+# concatenate inputs
+#`cat $input/*.abricate.tsv > $input/concatenated_results.txt`;
+
+# Parse table
 my %g_list = ();
 my %s_list = ();
-open TABLE, $input or die $!;
-while(<TABLE>){
+my %cov_list = ();
+
+my @files = glob "$input/*.abricate.tsv";
+for my $file (sort @files){
+
+	my $filename = $file;
+	$file =~ s/\.abricate.tsv$//g;
+	$file = basename($file);
+	$s_list{$file} = 1;
 	
-	my $line=$_;
-	chomp $line;
+	open TABLE, "$filename" or die " - ERROR: could not open $filename\n";
+	while(<TABLE>){
 	
-	unless(/#FILE/){
+		my $line=$_;
+		chomp $line;
 	
-		my @line = split(/\t/,$line, -1);
+		unless(/#FILE/){
+	
+			my @line = split(/\t/,$line, -1);
 		
-		my $sample = $line[0];
-		my $gene = $line[4];
-		my $perc_id = $line[8];
+			my $sample = $line[0];
+			my $gene = $line[4];
+			my $perc_id = $line[8];
+			my $perc_cov = $line[9];
 		
-		# remove file extension
-		$sample =~ s/\.fsa$||\.fasta$||\.fa$||\.gff$||\.gbk$//g;
-		$sample =~ s/#//g;
-		$sample = basename($sample);
+			# coverage info
+			my $raw_cov = $line[5];
+			$raw_cov =~/(\d+)-(\d+)\/(\d+)/;
+			my $cov_s = $1;
+			my $cov_e = $2;
+			my $length = $3; 
+			
+			# filter individual hsp on %id 
+			if ($perc_id > $pre_id){
 		
-		# store for tables
-		$g_list{$gene}{$sample} = $perc_id;
-		$s_list{$sample} = 1;
+				# remove file extension
+				$sample =~ s/\.fsa$||\.fasta$||\.fa$||\.gff$||\.gbk$//g;
+				$sample =~ s/#//g;
+				$sample = basename($sample);
+		
+				# check coverage info
+				my $new = 0;
+				if ( !$g_list{$gene}{$sample} ){
+			
+					$new=1;
+			
+					# store coverage
+					for my $i ( $cov_s..$cov_e  ){
+						$cov_list{$gene}{$sample}{"coverage"}{$i} = 1
+					}
+			
+				}else{
+					for my $i ( $cov_s..$cov_e  ){
+						$new = 1 if ( !($cov_list{$gene}{$sample}{"coverage"}{$i}) );
+						$cov_list{$gene}{$sample}{"coverage"}{$i} = 1
+					}
+				}
+		
+				# if new sequence has been added or better stats
+				if ( $new == 1 ){
+			
+					# if no values stored - add values, otherwise recalculate 
+					if ( !$g_list{$gene}{$sample} ){
+						$g_list{$gene}{$sample}{"pid"} = $perc_id;
+						$g_list{$gene}{$sample}{"pcov"} = $perc_cov;
+					}else{
+			
+						$g_list{$gene}{$sample}{"pid"} = (($g_list{$gene}{$sample}{"pid"}+$perc_id)/2); # add average
+				
+						# calculate/store coverage
+						my $cov = scalar(keys(%{$cov_list{$gene}{$sample}{"coverage"}}));
+						my $perc_cov_new = ($cov/$length)*100;
+						$g_list{$gene}{$sample}{"pcov"} = $perc_cov_new;
+				
+					}
+						
+				}
+			
+			}
+		
+		}
+	}close TABLE;
+}
+
+# filter results
+my %filtered_results = ();
+for my $k1 ( keys %g_list ){
+	
+	for my $k2 ( keys %{$g_list{$k1}} ){
+	
+		if ( ($g_list{$k1}{$k2}{"pcov"} > $filt_cov) && ($g_list{$k1}{$k2}{"pid"} > $filt_id) ){
+			$filtered_results{$k1}{$k2}{"pcov"} = $g_list{$k1}{$k2}{"pcov"};
+			$filtered_results{$k1}{$k2}{"pid"} = $g_list{$k1}{$k2}{"pid"};
+		}
 	}
-}close TABLE;
+}
 
 # open output file
 open OUT, ">$output" or die $!;
@@ -90,8 +197,14 @@ for my $s (@sample_list){
 	my @outline  = ("$s");
 	
 	for my $g ( @gene_list ){
-		if ( $g_list{$g}{$s} ){
-			push(@outline, $g_list{$g}{$s});
+		if ( $filtered_results{$g}{$s} ){
+			if( $binary == 1 ){
+				push(@outline, "1");
+			}elsif($perid){
+			 	push(@outline, $filtered_results{$g}{$s}{"pid"});
+			}elsif($percov){
+				push(@outline, $filtered_results{$g}{$s}{"pcov"});
+			}
 		}else{
 			push(@outline, "0");
 		}
