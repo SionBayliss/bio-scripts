@@ -14,7 +14,7 @@ use Pod::Usage;
  Input-Output:	
  --input		input pyseer_output file [required]
  --output	path to output file [required] 
- --pirate	pirate gene famililes file [required]
+ --pirate	pirate gene familes file [required]
  --column	column containing snps to convert [default: 0] 
  --gff-core		pirate gff file [optional]
  --gff-igr		piggy gff file [optional]

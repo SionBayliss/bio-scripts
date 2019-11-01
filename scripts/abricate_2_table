@@ -120,7 +120,7 @@ for my $file (sort @files){
 			if ($perc_id > $pre_id){
 		
 				# remove file extension
-				$sample =~ s/\.fsa$||\.fasta$||\.fa$||\.gff$||\.gbk$//g;
+				$sample =~ s/\.fsa$||\.fasta$||\.fa$||\.gff$||\.gbk$||\.fas$//g;
 				$sample =~ s/#//g;
 				$sample = basename($sample);
 		

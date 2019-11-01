@@ -12,7 +12,7 @@ use Cwd 'abs_path';
 
 =head1  SYNOPSIS
 
-	prepare_data_for_pyseer 
+	prepare_data_for_gwas
 	
  Input variants:
  --scripts	path to PIRATE root installation [required] 
@@ -62,7 +62,7 @@ my $sm_af = "";
 
 my $core = "0.95"; 
 my $dosage = "1.1";
-my $family_low = "0.05";
+my $family_low = "";
 
 my $prefix_vcf = "vcf"; 
 my $prefix_igr_vcf = "igr_vcf"; 
@@ -112,6 +112,9 @@ die " - ERROR: must specify output directory with --output\n" if $output eq "";
 die " - ERROR: must specify PIRATE or VCF file with --vcf/--pirate\n" if ( ($vcf eq "") && ($pir eq "") );
 die " - ERROR: must specify PIRATE script path --scripts\n" if ( ($path eq "") && ($pir ne "") );
 die " - ERROR: must specify allelic frequency with --af\n" if $af eq "";
+
+# set family low to af unless family-low has been set by user
+$family_low = $af if $family_low eq "";
 
 # find path of bio-scripts 
 my $script_path = abs_path(dirname($0));

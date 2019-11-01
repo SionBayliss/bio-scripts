@@ -184,7 +184,7 @@ while(<I>){
 		print O "$line\n";
 	}
 	# add aditional headers
-	elsif( $vars[0] eq "loci" ){
+	elsif( ($vars[0] eq "loci") || ($vars[0] eq "variant") ){
 		print O "$line\tpresent_pheno_1\tabsent_pheno_1\tpresent_pheno_0\tabsent_pheno_0\n";
 	}
 	# add counts
