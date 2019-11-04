@@ -85,6 +85,7 @@ $binary = 0 if ( $perid || $percov );
 my %g_list = ();
 my %s_list = ();
 my %cov_list = ();
+my %idx = ();
 
 my @files = glob "$input/*.abricate.tsv";
 for my $file (sort @files){
@@ -99,18 +100,32 @@ for my $file (sort @files){
 	
 		my $line=$_;
 		chomp $line;
-	
-		unless(/#FILE/){
-	
-			my @line = split(/\t/,$line, -1);
 		
-			my $sample = $line[0];
-			my $gene = $line[4];
-			my $perc_id = $line[8];
-			my $perc_cov = $line[9];
+		my @line = split(/\t/,$line, -1);
+		
+		if (/#FILE/){
+		
+			for my $i (0..$#line){
+				my $h = $line[$i]; 
+				$idx{"file"} = $i+1 if ($h eq "#FILE"); 
+				$idx{"gene"} = $i+1 if ($h eq "GENE"); 
+				$idx{"percov"} = $i+1 if ($h eq "\%COVERAGE"); 
+				$idx{"perid"} = $i+1 if ($h eq "\%IDENTITY"); 
+				$idx{"rcov"} = $i+1 if ($h eq "COVERAGE"); 
+			}
+			
+			# sanity check 
+			die " ERROR: not enough headers forund in file.\n" if scalar(keys(%idx))<5;
+		
+		}else{
+	
+			my $sample = $line[$idx{"file"}-1];
+			my $gene = $line[$idx{"gene"}-1];
+			my $perc_id = $line[$idx{"perid"}-1];
+			my $perc_cov = $line[$idx{"percov"}-1];
 		
 			# coverage info
-			my $raw_cov = $line[5];
+			my $raw_cov = $line[$idx{"rcov"}-1];
 			$raw_cov =~/(\d+)-(\d+)\/(\d+)/;
 			my $cov_s = $1;
 			my $cov_e = $2;
