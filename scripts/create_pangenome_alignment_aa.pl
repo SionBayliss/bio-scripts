@@ -254,10 +254,6 @@ while(<GC>){
 	
 }
 
-# Feedback
-my $no_groups =  scalar ( keys %group_list );
-print " - $no_groups clusters to be printed to output\n" unless $quiet == 1;
-
 # Check from fasta files present for all genomes.
 my @include = ();
 foreach my $cluster ( @group_order ){
@@ -268,9 +264,14 @@ foreach my $cluster ( @group_order ){
 	if ( -f $test_f ){
 		push(@include, $cluster);
 	}else{
-		print " - WARNING: No fasta file for $cluster found in $fasta_dir" 	
+		print " - WARNING: No fasta file for $cluster found in $fasta_dir\n" 	
 	}
 }
+
+# Feedback
+my $no_groups =  scalar ( @group_order );
+print " - $no_groups clusters to be printed to output\n" unless $quiet == 1;
+
 
 # Create output hash
 my %sequence_out;
