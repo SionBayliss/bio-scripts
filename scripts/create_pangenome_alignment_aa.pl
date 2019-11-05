@@ -259,8 +259,17 @@ my $no_groups =  scalar ( keys %group_list );
 print " - $no_groups clusters to be printed to output\n" unless $quiet == 1;
 
 # Check from fasta files present for all genomes.
-foreach my $cluster ( keys %group_list ){
-	die "No fasta file for $cluster found in $fasta_dir" unless -f "$fasta_dir/$cluster.nucleotide.fasta";	
+my @include = ();
+foreach my $cluster ( @group_order ){
+	
+	my $test_f = "$fasta_dir/$cluster.nucleotide.fasta";
+	$test_f = "$fasta_dir/$cluster.aa.fasta" if $aa == 1;
+	
+	if ( -f $test_f ){
+		push(@include);
+	}else{
+		print " - WARNING: No fasta file for $cluster found in $fasta_dir" 	
+	}
 }
 
 # Create output hash
@@ -275,7 +284,7 @@ $inc = 1 if $inc == 0;
 my $g_count = 0;
 my $alignment_length = 0;
 my @gff_out = ();
-for my $file ( @group_order ){
+for my $file ( @include ){
 
 	++$g_count;
 
