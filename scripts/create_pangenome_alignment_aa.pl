@@ -266,7 +266,7 @@ foreach my $cluster ( @group_order ){
 	$test_f = "$fasta_dir/$cluster.aa.fasta" if $aa == 1;
 	
 	if ( -f $test_f ){
-		push(@include);
+		push(@include, $cluster);
 	}else{
 		print " - WARNING: No fasta file for $cluster found in $fasta_dir" 	
 	}
