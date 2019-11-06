@@ -5,7 +5,7 @@ use warnings;
 use Getopt::Long qw(GetOptions);
 use Pod::Usage;
 
-# convert a multi site vcf to a normalised vcf and retain all sites.
+# convert a multi site vcf to a normalised vcf and retain /filter all sites.
 
 =head1  SYNOPSIS
 
@@ -19,15 +19,17 @@ use Pod::Usage;
  Filtering options:
  --fl|freq-low		min snp frequency to include in output 
 			[default: 0.00]
- --fh|freq-high		max snp frequency to include in output 
+ --fh|freq-high		max snp frequency to include in output 101958/213152
 			[default: 1.00]
- -n|--n-sites	include n-sites [default: exclude]
- -s|--store-inv	store alleles that are the inverse of another [default:off] 
+ -n|--n-sites		include sites called due to the presence of gaps,
+ 			i.e. contains gap and a single reference allele [default: exclude]
+ -s|--store-inv		store alleles that are the inverse of another [default:off] 
  -l|--list 		list of samples to include [default: off]
  --freq-inv		frequency threshold to be considered inverse allele [default: 0.98]
- --store-inv	include inverse alleles in output [default: off]	
+ --store-inv		include inverse alleles in output [default: off]	
 			
  General:
+ -t|--type		type of data [default: auto, opts: nuc,aa] 
  -h|--help		usage information
  
 =cut
@@ -46,6 +48,7 @@ my $list = '';
 my $store_inv = 0;
 
 my $inv_thresh = 0.98;
+my $type = 'auto';
 
 my $help = 0; 
 
@@ -65,20 +68,23 @@ GetOptions(
 	'store-inv' => \$store_inv,
 	'list=s' => \$list,
 	
+	'type=s' => \$type,
+	
 ) or pod2usage(1);
 pod2usage(1) if $help;
 pod2usage( {-message => q{input vcf is a required arguement}, -exitval => 1, -verbose => 1 } ) if $vcf eq ''; 
 pod2usage( {-message => q{output file is a required arguement}, -exitval => 1, -verbose => 1 } ) if $output eq ''; 
 
 # check inverse threshold
-die " - inverse allele frequency threshold (--freq-inv) should be a number betwen 0-1.\n" if ( ($inv_thresh < 0) || ($inv_thresh>1));
+die " - ERROR: inverse allele frequency threshold (--freq-inv) should be a number betwen 0-1.\n" if ( ($inv_thresh < 0) || ($inv_thresh>1));
+die " - ERROR: --type only accepts nuc,aa,auto\n" unless ( ($type eq "nuc") || ($type eq "aa") || ($type eq "auto") );
 
 # feedback - settings
 print "\nSettings:\n";
 if ($ns == 1){
-	print " - including Ns in output.\n";
+	print " - including gaps in output.\n";
 }else{
-	print " - excluding Ns in output.\n";
+	print " - excluding gaps in output.\n";
 }
 if ($store_inv == 1){
 	print " - including inverse_alleles in output.\n";
@@ -86,6 +92,59 @@ if ($store_inv == 1){
 	print " - excluding inverse_alleles in output.\n";
 } 
 print " - inverse allele frequency = $inv_thresh\n";
+
+# test type of input 
+my $aa = 0;
+if ($type eq "auto"){
+
+	my $test_count = 0;
+	my $non_atcg = 0;
+	open VCF, $vcf or die "VCF file did not open.\n";
+	while(<VCF>){
+
+		my $l = $_;
+		chomp $l;
+	
+		my @line = split(/\t/, $l, -1);
+	
+		# store headers
+		if( (/^#CHROM\tPOS/) || (/^#/) ){
+		}elsif(/^\S+\t/){
+		
+			$test_count++;
+	
+			my $ref = uc($line[3]);
+			my $alt = uc($line[4]);
+			my @alleles = ( $ref , split(/,/, $alt ) );
+		
+			# test for non-nucleotide characters
+			$non_atcg = 0;
+			for (@alleles){
+				unless ( $_ =~ /[ATCGN*]/){
+					$non_atcg = 1;
+					last;
+				}
+			}
+		}
+	
+		# check for atcgn  
+		if ($non_atcg == 1){
+			$aa = 1;
+			last;
+		}
+		last if ($test_count >= 1000);
+
+	}close VCF;
+	
+}
+
+# feedback 
+if ($aa == 1){
+	print " - vcf being processed as including amino acid sequence\n";
+}else{
+	print " - vcf being processed as including nucleotide sequence\n";
+}
+
 print "\nRunning:\n";
 
 # [optional] open list file
@@ -188,18 +247,20 @@ while(<VCF>){
 		my $ref = uc($line[3]);
 		my $alt = uc($line[4]);
 				
-		# replace alternative gap characters with n
-		$alt =~ s/\*|\-/N/g;
-		$ref =~ s/\*|\-/N/g;
+		# replace alternative gap characters with *
+		$alt =~ s/\-/\*/g;
+		$ref =~ s/\-/\*/g;
+		$alt =~ s/N/\*/g if $aa == 0; 
+		$ref =~ s/N/\*/g if $aa == 0;
 		
 		# store all alleles (inc ref as allele)
 		my @alleles = ( $ref , split(/,/, $alt ) );
 		
 		# find number Ns 
 		my $n_Ns = 0;
-		for (@alleles) { ++$n_Ns if $_ eq "N" };
+		for (@alleles) { ++$n_Ns if $_ eq "*" };
 		$n_vars += $n_Ns;
-		
+
 		# find number of alleles excluding Ns [optionally include with --n]
 		my $no_alleles = @alleles;
 		$no_variants += $no_alleles;
@@ -217,7 +278,7 @@ while(<VCF>){
 				my $a_char = $alleles[$a_idx];
 				
 				# exclude ns [optionally include with --n ]
-				if( ($ns == 1) || ( ($ns == 0) && ($a_char ne "N") ) ){
+				if( ($ns == 1) || ( ($ns == 0) && ($a_char ne "*") ) ){
 		
 					# print a single line for each variant
 					my @outline = ( @line[0..3], $a_char, @line[5..8] );	
@@ -235,8 +296,8 @@ while(<VCF>){
 					}
 		
 					# frequency of variants in samples
-					my $freq = $s_count/$no_samples;
-		
+					my $freq = $s_count/$no_samples;	
+						
 					# store variant if between frequency thresholds
 					if ( ( $freq <= $h_threshold ) && ( $freq >= $l_threshold ) ){
 						
@@ -245,7 +306,7 @@ while(<VCF>){
 						
 						# store line and freq
 						$site_store{$a_idx+1} = $output_line;
-						$count_store{$a_idx+1} = $s_count; 						
+						$count_store{$a_idx+1} = $s_count;						
 						
 					}
 				}
@@ -300,6 +361,6 @@ close OUTPUT;
 # feedback
 print "\r - $no_sites variant sites processed.\n\nSummary:\n";
 print " - $no_sites sites contained $no_variants variants.\n";
-print " - $n_vars variants were Ns.\n";
+print " - $n_vars variants were gaps.\n";
 print " - $inverse variants were inverse alleles.\n";
 print " - $no_stored_vars/$no_variants variants were printed to output file [freq: $l_threshold-$h_threshold].\n\n";

@@ -195,8 +195,8 @@ while(<INPUT>){
 			die " - only one variant per site expected - use expand_vcf\n" if ($alt =~ /,/);
 			
 			# replace alternative gap characters with n
-			$alt =~ s/\*|\-/N/g;
-			$ref =~ s/\*|\-/N/g;
+			#$alt =~ s/\*|\-/N/g;
+			#$ref =~ s/\*|\-/N/g;
 			
 			$id = sprintf("%s\_%s\_%s\_%s", $chrom, $pos, $alt, $ref);
 		}

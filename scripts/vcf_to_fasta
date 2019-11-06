@@ -42,6 +42,8 @@ my $list = '';
 
 my $help = 0; 
 
+my $type = 'auto';
+
 GetOptions(
 
 	'help|?' 	=> \$help,
@@ -54,10 +56,66 @@ GetOptions(
 	'ns' => \$ns,
 	'list=s' => \$list,
 	
+	'type=s' => \$type,
+	
 ) or pod2usage(1);
 pod2usage(1) if $help;
-pod2usage( {-message => q{input vcf is a required arguement}, -exitval => 1, -verbose => 1 } ) if $vcf eq ''; 
-pod2usage( {-message => q{output file is a required arguement}, -exitval => 1, -verbose => 1 } ) if $output eq ''; 
+pod2usage( {-message => q{ - ERROR: input vcf is a required arguement}, -exitval => 1, -verbose => 1 } ) if $vcf eq ''; 
+pod2usage( {-message => q{ - ERROR: output file is a required arguement}, -exitval => 1, -verbose => 1 } ) if $output eq ''; 
+die " - ERROR: --type only accepts nuc,aa,auto\n" unless ( ($type eq "nuc") || ($type eq "aa") || ($type eq "auto") );
+
+# test type of vcf input 
+my $aa = 0;
+if ($type eq "auto"){
+
+	my $test_count = 0;
+	my $non_atcg = 0;
+	open VCF, $vcf or die "VCF file did not open.\n";
+	while(<VCF>){
+
+		my $l = $_;
+		chomp $l;
+	
+		my @line = split(/\t/, $l, -1);
+	
+		# store headers
+		if( (/^#CHROM\tPOS/) || (/^#/) ){
+		}elsif(/^\S+\t/){
+		
+			$test_count++;
+	
+			my $ref = uc($line[3]);
+			my $alt = uc($line[4]);
+			my @alleles = ( $ref , split(/,/, $alt ) );
+		
+			# test for non-nucleotide characters
+			$non_atcg = 0;
+			for (@alleles){
+				unless ( $_ =~ /[ATCGN*]/){
+					$non_atcg = 1;
+					last;
+				}
+			}
+		}
+	
+		# check for atcgn  
+		if ($non_atcg == 1){
+			$aa = 1;
+			last;
+		}
+		last if ($test_count >= 1000);
+
+	}close VCF;
+	
+}
+
+
+# feedback 
+if ($aa == 1){
+	print " - vcf being processed as including amino acid sequence\n";
+}else{
+	print " - vcf being processed as including nucleotide sequence\n";
+}
 
 # [optional] open list file
 my %list  = (); 
@@ -106,6 +164,7 @@ my $max_pos = scalar(keys(%pos_hash));
 my $temp_string = join("", (0 x $max_pos) );
 %pos_hash = ();
 
+# process file 
 open VCF, $vcf or die "VCF file did not open.\n";
 while(<VCF>){
 	
@@ -167,19 +226,21 @@ while(<VCF>){
 		my $ref = uc($line[3]);
 		my $alt = uc($line[4]);
 				
-		# replace alternative gap characters with n
-		$alt =~ s/\*|\-/N/g;
-		$ref =~ s/\*|\-/N/g;
+		# replace alternative gap characters with *
+		$alt =~ s/\-/\*/g;
+		$ref =~ s/\-/\*/g;
+		$alt =~ s/\N/\*/g if $aa == 0;
+		$ref =~ s/\N/\*/g if $aa == 0;
 		
 		# store all alleles (inc ref as allele)
 		my @alleles = ( $ref , split(/,/, $alt ) );
 		
 		# find number Ns 
 		my $n_Ns = 0;
-		for (@alleles) { ++$n_Ns if $_ eq "N" };
+		for (@alleles) { ++$n_Ns if $_ eq "\*" };
 		$n_vars += $n_Ns;
 		
-		# find number of alleles excluding Ns [optionally include with --n]
+		# find number of alleles excluding gaps [optionally include with --n]
 		my $no_alleles = @alleles;
 		$no_variants += $no_alleles;
 		$no_alleles = $no_alleles - $n_Ns if $ns == 0;
@@ -188,7 +249,6 @@ while(<VCF>){
 		# process if there is > 1 allele 
 		if ( $no_alleles > 1 ){
 			
-			
 			my %inc = ();
 			my $no_alleles_ch2 = 0; 
 			for my $a_idx (0..$#alleles) {
@@ -196,9 +256,9 @@ while(<VCF>){
 				my $a_char = $alleles[$a_idx];
 				
 				# exclude ns [optionally include with --n ]
-				if( ($ns == 1) || ( ($ns == 0) && ($a_char ne "N") ) ){
-		
-					# print a single line for each variant
+				if( ($ns == 1) || ( ($ns == 0) && ($a_char ne "\*") ) ){
+										
+					# print each variant
 					my @inc_idx = ();
 					my $s_count = 0; 				
 					for my $t ( @include ){ 	
@@ -213,16 +273,19 @@ while(<VCF>){
 					}
 					
 					# increment second allele check
-					if ($s_count > 0 ){
-						$no_alleles_ch2++;
-						$al_hash{$a_idx} = 1; 
-					}
-		
+					#if ($s_count > 0 ){
+					#	$no_alleles_ch2++;
+					#	$al_hash{$a_idx} = 1; 
+					#}
+					
 					# frequency of variants in samples
 					my $freq = $s_count/$no_samples;
-		
-					# store variant if between frequency thresholds
+					
+					# store variant if between frequency thresholds and increment second allele check 
 					if ( ( $freq <= $h_threshold ) && ( $freq >= $l_threshold ) ){
+					
+						$no_alleles_ch2++;
+						$al_hash{$a_idx} = 1; 
 						
 						# include base at this position
 						for (@inc_idx){
@@ -248,7 +311,7 @@ while(<VCF>){
 						substr $storage_var[$ar_idx], ($no_inc_sites-1), 1, $inc{$pos};
 						
 					}else{
-						substr $storage_var[$ar_idx], ($no_inc_sites-1), 1, "N";
+						substr $storage_var[$ar_idx], ($no_inc_sites-1), 1, "*";
 					}
 			
 				}
