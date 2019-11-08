@@ -1,0 +1,274 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings qw(all);
+
+use Getopt::Long qw(GetOptions :config no_ignore_case);
+use Pod::Usage;
+use File::Basename;
+use Scalar::Util qw(looks_like_number);
+use Cwd 'abs_path';
+use FindBin;
+my $script_path = abs_path($FindBin::RealBin);
+
+# run pyseer on sequentially using multiple phenotypes on a single dataset 
+
+=head1  SYNOPSIS
+
+	run_pyseer
+	
+ Input variants:
+ --vcf		one of more vcf files [required] 
+ --pres		one or more presence_absence files [required] 
+ [--pres or --vcf required]
+ --output 	output directory [required]
+ --pheno	sample phenotype file containing one column per 
+ 		phenotype and headers per column [required]
+ 
+ Pyseer options:
+ --alpha	alpha value [default: 1]
+ 
+ Annotation options:
+ --pirate 	path to pirate directory used for creating inputs 
+ 		[optional, requires gff]
+ --gff 		path to gff used for creating snp inputs 
+ 		[optional, requires --pirate]
+ 
+ General options:
+ --threads	number of parallel threads [default: 2]
+ --help 	usage information
+  
+=cut
+
+# command line options
+my $vcf = "";
+my $pres = "";
+my $output = '';
+my $meta= "";
+
+my $alpha = 1;
+my $threads = 2;
+
+my $pirate = "";
+my $gff = "";
+
+my $help = 0;
+
+pod2usage(1) if scalar(@ARGV) == 0;
+GetOptions(
+
+	'vcf=s'	=> \$vcf,
+	'pres=s'	=> \$pres,
+	
+	'output=s' => \$output,
+	'pheno=s' => \$meta,
+	
+	'alpha=f' => \$alpha,
+	
+	'pirate=s' => \$pirate,
+	'gff=s' => \$gff,
+	
+	'threads=i' => \$threads,
+	'help|?' 	=> \$help,
+
+) or die pod2usage(1);
+pod2usage(1) if $help;
+
+# check input files
+die " ERROR: --vcf or --pres are required argument\n" if ( ($vcf eq "") && ($pres eq "") ); 
+die " ERROR: only input one --vcf or --pres argument\n" if ( ($vcf ne "") && ($pres ne "") ); 
+die " ERROR: --output is a required argument\n" if ( $output eq "" ); 
+die " ERROR: --pheno is a required argument\n" if ( $meta eq "" ); 
+die " ERROR: --pirate and --gff are dependent on one another\n" if ( (($pirate ne "") && ($gff eq "")) || ( ($pirate eq "") && ($gff ne "") ) );
+ 
+# make output directory
+unless ( -d $output ){
+	die " - ERROR: could not create output directory: $output\n" unless mkdir $output; 
+}
+
+# store metadata per phenotype
+my %samples = ();
+my $count = 0;
+my %binary = ();
+my @headers = ();
+open META, "$meta" or die " - ERROR: could not open list file ($meta)\n"; 
+while(<META>){
+	
+	++$count;
+	
+	my $line = $_;
+	chomp $line;
+	
+	my @vars = split(/\t/, $line, -1);
+	
+	# headers
+	if ($count == 1){
+		
+		@headers = @vars;
+		die " - not enough column headers in file (need >1)\n" if @headers == 1;
+		
+		# set default data type as binary and reformat headers
+		for my $i (1..$#headers){ 
+			$headers[$i] =~ s/\s+/_/g;
+			$headers[$i] =~ s/\//_/g; 
+			$binary{$headers[$i]} = 1;
+		}
+	}else{
+		for my $i (1..$#headers){ 
+		
+			$samples{$headers[$i]}{$vars[0]} = "$vars[$i]";
+			
+			# sanity check 
+			die " ERROR: expected binary or continous " unless ( (looks_like_number($vars[$i])) || ($vars[$i] ne "NA") );
+		
+			# check for binary data
+			$binary{$headers[$i]} = 0 unless ( ($vars[$i] eq "NA") || ($vars[$i] == 1) || ($vars[$i] == 0)); 
+
+		}
+	}
+}close META;
+
+# feedback 
+my @pheno = @headers[1..$#headers];
+print "\n - ".@pheno." phenotypes in metadata file\n";
+my $s_count = $count-1;
+print " - $s_count samples in metadata file\n\n";
+
+# make general summary file
+my $log_file = "$output/summary.$alpha.tsv";
+open LF, ">$log_file" or die " - ERROR: could not open summary file - $log_file";
+print LF "phenotype\tR2\tlambda\tmodel_deviance\tloaded_variants\tfiltered_variants\ttested_variants\tprinted_variants\n";
+close LF;
+
+# run pyseer per phenotype and annotate outputs
+for my $p (@pheno){
+	
+	# ensure no whitespace in header
+	$p =~ s/\s+/_/g;
+	$p =~ s/\//_/g;
+	
+	# data type 
+	my $type = "continuous";
+	$type = "binary" if $binary{$p};
+	
+	# feedback
+	print " - running pyseer for $p ($type)\n";
+	
+	# make output directory for phenotype
+	my $p_out = "$output/$p";
+	unless ( -d $p_out ){
+		die " - ERROR: could not create output directory: $p_out\n" unless mkdir $p_out; 
+	}
+
+	# prepare metadata
+	my $p_meta = "$p_out/metadata.txt";
+	open M, ">$p_meta" or die " - ERROR: could not open $p_meta\n";
+	print M "id\t$p\n";
+	for my $s ( sort keys %{$samples{$p}} ){
+		print M "$s\t$samples{$p}{$s}\n";
+	}close M;
+	
+	# make command 
+	my @args = ();
+	push(@args, "--vcf $vcf") if $vcf ne "";
+	push(@args, "--pres $pres") if $pres ne "";
+	my $command = sprintf("pyseer %s --phenotypes %s --wg enet --save-vars %s --save-model %s --cpu $threads --alpha $alpha > %s 2> %s", 
+			join(" ", @args), $p_meta, "$p_out/snps.$alpha", "$p_out/model.$alpha", "$p_out/selected.$alpha.tsv", "$p_out/log.$alpha.txt");
+	
+	# run pyseer
+	system($command);
+	
+	# set current input 
+	my $temp_input = "$p_out/selected.$alpha.tsv";
+		
+	# annotate outputs
+	my $sum = 1;
+	if ($?){
+		print " - WARNING: pyseer failed for $p, see $p_out/log.$alpha.txt\n";
+		$sum = 0;
+	}else{
+		
+		# feedback
+		print " - pyseer completed sucessfully\n";
+		
+		# optionally annotate outputs if pirate files used as input 
+		if ($pirate ne ""){
+		
+			print " - annotating output\n";
+				
+			# annotate hits
+			my $ann_args = "";
+			$ann_args = "--gff-core $gff" if $gff ne "";
+			`$script_path/annotate_gwas_hits --input $p_out/selected.$alpha.tsv --output $p_out/selected.$alpha.annotated.tsv --pirate $pirate $ann_args`;
+			print " - WARNING: annotate_gwas_hits failed for $p\n" if $?;
+			
+			# set as temp input for freq annotation
+			if ($?){
+				print " - WARNING: annotate_gwas_hits failed for $p\n";
+			}else{
+				$temp_input = "$p_out/selected.$alpha.annotated.tsv";
+			}
+			
+		}
+		
+		# annotate with frequency of variants in original dataset
+		if ( ($pres ne "") && ($binary{$p}) ){
+			print " - annotating output with frequency\n";
+			`$script_path/annotate_gwas_hit_frequency --input $temp_input --output $p_out/selected.$alpha.annotated_freq.tsv --variants $pres --phenotype $p_meta`;
+			print " - WARNING: annotate_gwas_hit_frequency failed for $p\n" if $?;
+			$temp_input = "$p_out/selected.$alpha.annotated_freq.tsv";
+		}
+		
+	}
+	
+	# make summary line of relevant data from log files for each phenotype
+	if ($sum == 1){
+	
+		open L, "$p_out/log.$alpha.txt" or die " - ERROR: could not open $p_out/log.$alpha.txt\n";
+		my $r2 = "";
+		my $lambda = "";
+		my $dev = "";
+		my $lv = "";
+		my $fv = "";
+		my $tv = "";
+		my $pv = "";
+		while(<L>){
+			if (/Best penalty \(lambda\) from cross-validation: (.+)/){
+				$lambda = $1;
+			}
+			if (/Best model deviance from cross-validation: (.+)/){
+				$dev = $1;
+			}
+			if (/Best R\^2 from cross-validation: (.+)/){
+				$r2 = $1;
+			}
+			if (/(\d+) loaded variants/){
+				$lv = $1;
+			}
+			if (/(\d+) filtered variants/){
+				$fv = $1;
+			}
+			if (/(\d+) tested variants/){
+				$tv = $1;
+			}
+			if (/(\d+) printed variants/){
+				$pv = $1;
+			}
+		}close L;
+		
+		# print to file
+		open LF, ">>$log_file" or die " - ERROR: could not open summary file - $log_file";
+		print LF "$p\t$r2\t$lambda\t$dev\t$lv\t$fv\t$tv\t$pv\n";
+		close LF;
+	}
+	
+	print " - completed\n\n";
+	
+	# clean up
+	system("gzip --force $temp_input") if -f $temp_input;
+	unlink("$p_out/selected.$alpha.annotated_freq.tsv") if -f "$p_out/selected.$alpha.annotated_freq.tsv";
+	unlink("$p_out/selected.$alpha.annotated.tsv") if -f "$p_out/selected.$alpha.annotated.tsv";
+	unlink("$p_out/selected.$alpha.tsv") if -f "$p_out/selected.$alpha.tsv";
+}
+
+

@@ -236,8 +236,8 @@ while (<IN>){
 		my $pos_no = "";
 	
 		# core snps
-		if ( ($vars[$column] =~/(\d+)_[ATCGN]_[ATCGN]-core$/) || ($vars[$column] =~/(\d+)_[ATCG]_[ATCG]-$/) ){
-		
+		#if ( ($vars[$column] =~/(\d+)_[ATCGN]_[ATCGN]-core$/) || ($vars[$column] =~/(\d+)_[ATCGN]_[ATCGN]-$/) ){
+		if ( ($vars[$column] =~/(\d+)_\D_\D-core$/) || ($vars[$column] =~/(\d+)_\D_\D-$/) ){
 			$var_type = "snp";
 		
 			$pos_no = $1;
@@ -268,7 +268,8 @@ while (<IN>){
 		
 		}
 		# snp error
-		elsif ( $vars[$column] =~/(\d+)_[ATCGN]_[ATCGN]/ ){
+		#elsif ( $vars[$column] =~/(\d+)_[ATCGN]_[ATCGN]/ ){
+		elsif ( $vars[$column] =~/(\d+)_\D_\D/ ){
 		
 			die " - WARNING: unrecognised SNP: $line\n";
 		
