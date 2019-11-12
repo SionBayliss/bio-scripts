@@ -27,6 +27,7 @@ my $script_path = abs_path($FindBin::RealBin);
  
  Pyseer options:
  --alpha	alpha value [default: 1]
+ --k	k for k-fold for cross validation [default: 10]
  
  Annotation options:
  --pirate 	path to pirate directory used for creating inputs 
@@ -51,6 +52,7 @@ my $threads = 2;
 
 my $pirate = "";
 my $gff = "";
+my $k = 10;
 
 my $help = 0;
 
@@ -64,6 +66,7 @@ GetOptions(
 	'pheno=s' => \$meta,
 	
 	'alpha=f' => \$alpha,
+	'k=i'	=> \$k,
 	
 	'pirate=s' => \$pirate,
 	'gff=s' => \$gff,
@@ -172,7 +175,7 @@ for my $p (@pheno){
 	my @args = ();
 	push(@args, "--vcf $vcf") if $vcf ne "";
 	push(@args, "--pres $pres") if $pres ne "";
-	my $command = sprintf("pyseer %s --phenotypes %s --wg enet --save-vars %s --save-model %s --cpu $threads --alpha $alpha > %s 2> %s", 
+	my $command = sprintf("pyseer %s --phenotypes %s --wg enet --save-vars %s --save-model %s --cpu $threads --alpha $alpha --n-folds $k > %s 2> %s", 
 			join(" ", @args), $p_meta, "$p_out/snps.$alpha", "$p_out/model.$alpha", "$p_out/selected.$alpha.tsv", "$p_out/log.$alpha.txt");
 	
 	# run pyseer
