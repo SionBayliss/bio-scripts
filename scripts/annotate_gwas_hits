@@ -69,7 +69,7 @@ if ($pirate ne ""){
 		my $line  = $_;
 		chomp $line;
 	
-		my @vars = split(/\t/, $line);
+		my @vars = split(/\t/, $line, -1);
 	
 		# FASTA section
 		unless (/^allele/){
@@ -112,7 +112,7 @@ while (<GFF>){
 		my $end = $vars[4];
 		
 		my $id = "";
-		for my $i (split(/;/, $vars[8])){
+		for my $i (split(/;/, $vars[8], -1)){
 			if ($i =~ /^ID=(.+)/){
 				$id = $1;
 			}
@@ -151,7 +151,7 @@ if ($gff_igr ne ""){
 		my $line  = $_;
 		chomp $line;
 	
-		my @vars = split(/\t/, $line);
+		my @vars = split(/\t/, $line, -1);
 	
 		# FASTA section
 		if (/^##FASTA/){
@@ -205,7 +205,7 @@ while (<IN>){
 	my $line = $_;
 	chomp $line;
 	
-	my @vars = split(/\t/, $line);
+	my @vars = split(/\t/, $line, -1);
 	
 	# headers 
 	if(/^#/){
