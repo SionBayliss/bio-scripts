@@ -1,0 +1,194 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings qw(all);
+
+use Getopt::Long qw(GetOptions :config no_ignore_case);
+use Pod::Usage;
+use File::Basename;
+use FindBin;
+use Cwd 'abs_path';
+my $script_path = abs_path($FindBin::RealBin);
+
+
+# parse combined output of find_T3SS, make table
+
+=head1  SYNOPSIS
+
+	parse_T3SS
+	
+ Input variants:
+ --input	input file [required] 
+ --output 	output file [required]
+ 
+ General options:
+ --functional 	functional threshold, # missing [default: 0] 
+ --putative 	putative threshold, # missing [default: 0]
+ --manual-f		manual functional threshold per SS [e.g. T3SS 6]
+ --manual-p		manual putative threshold per SS [e.g. T3SS 6]
+ 
+ Misc options:
+ -h|--help 	usage information
+  
+=cut
+
+# command line options
+my @ARGS = @ARGV;
+my $input = "";
+my $output = '';
+
+my $functional = 0;
+my $putative = 0;
+my $manual_f = "";
+my $manual_p = "";
+
+my $help = 0;
+
+pod2usage(1) if scalar(@ARGV) == 0;
+GetOptions(
+
+	'input=s'	=> \$input,
+	'output=s'	=> \$output,
+	
+	'functional=i' => \$functional,
+	'putative=i' => \$putative,
+	
+	'manual-f=s' => \$manual_f,
+	'manual-p=s' => \$manual_p,
+	
+	'help|?' 	=> \$help,
+
+) or die pod2usage(1);
+pod2usage(1) if $help;
+
+# check for individual system threshold amendments
+my %f_amend = ();
+if($manual_f){
+	
+	my @vals = split(/\s+/, $manual_f, -1);
+	die " - ERROR: need to pass arguement pair to manual-f\n" if ( (@vals % 2) != 0 );
+	%f_amend = @vals;
+}
+my %p_amend = ();
+if($manual_p){
+	
+	my @vals = split(/\s+/, $manual_p, -1);
+	die " - ERROR: need to pass arguement pair to manual-f\n" if ( (@vals % 2) != 0 );
+	%p_amend = @vals;
+}
+
+# parase file for all SS
+my %SS = ();
+my $count = 0;
+open INPUT, $input or die " - ERROR: could not open input file\n";
+while(<INPUT>){
+
+	++$count;	
+	
+	my $line = $_;
+	chomp $line;
+	
+	if ($count > 1){
+		my @vars = split(/\t/,$line,-1);
+		$SS{$vars[2]} = $vars[5];
+	}	
+	
+}close INPUT;
+
+# make options for filtering
+my %Ts = ();
+print "\n - Thresholds (#total/functional/putative):\n";
+for my $S (sort keys %SS){
+	
+	my $total = $SS{$S};
+	my $fs = "";
+	my $ps = "";
+	
+	if ($f_amend{$S}){
+		$Ts{$S}{"f"} = $SS{$S} - $f_amend{$S} - $functional;;
+		$fs = $SS{$S} - $f_amend{$S};
+	}else{
+		$Ts{$S}{"f"} = $SS{$S} - $functional;
+		$fs = $SS{$S} - $functional;
+	}
+	
+	if($p_amend{$S}){
+		$Ts{$S}{"p"} = $SS{$S} - $p_amend{$S} - $putative;;
+		$ps = $SS{$S} - $p_amend{$S};
+	}else{
+		$Ts{$S}{"p"} = $SS{$S} - $putative;
+		$ps = $SS{$S} - $putative;
+	}
+	
+	# feedback
+	print "$S\t$total\t$fs\t$ps\n";
+}
+print "\n";
+
+# parse file and store for output
+my %functional_systems = ();
+my %putative_systems = ();
+$count = 0;
+open INPUT, $input or die " - ERROR: could not open input file\n";
+while(<INPUT>){
+
+	++$count;	
+	
+	my $line = $_;
+	chomp $line;
+	
+	if ($count > 1){
+	
+		my @vars = split(/\t/,$line,-1);
+		my $sample = $vars[0];
+		my $system = $vars[2];
+		my $present = $vars[10];
+		my $detail = $vars[17];
+		
+		# check for functional system
+		if ( ($present >= $Ts{$system}{"f"}) && ($present != 0) ){
+			$functional_systems{$sample}{$system}=1;
+		}
+		
+		# update putative count;
+		$detail =~ s/[\{\}\'\'\s+]//g;
+		my @split = split(/\,/, $detail);
+		for my $i(@split){
+			my @fin = split(/\:/, $i, -1);
+			$putative_systems{$sample}{$system}{$fin[0]} = 1 if $fin[1] == 1;
+		}
+	}
+		
+}close INPUT;
+
+# open output file
+open OUT, ">$output" or die " - ERROR: could not open output file\n";
+print OUT sprintf("### options: %s\n", join(" ", @ARGS));
+my @SecSyst = sort(keys(%Ts));
+print OUT sprintf("id\t%s\n", join("\t", @SecSyst ));
+
+# prepare outputs
+for my $sample (sort keys %putative_systems){
+	
+	my @outline = ("$sample");
+	
+	for my $system (sort keys %Ts){
+	
+		my $out = "A";
+		if($functional_systems{$sample}{$system}){
+			$out = "F";
+		}else{
+			my $present = keys %{$putative_systems{$sample}{$system}};
+			$out = "P" if ( ($present >= $Ts{$system}{"p"}) && ($present != 0) );
+		}
+		
+		push(@outline, $out);
+	}
+	
+	# print
+	print OUT sprintf("%s\n", join("\t", @outline));
+	 
+}close OUT;
+
+print " - complete\n";
+

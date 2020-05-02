@@ -56,6 +56,10 @@ my $k = 10;
 
 my $help = 0;
 
+# notes 
+# annotate GWAS hits - line 205 passing wrong file 
+# add --lineage-clusters lineageclusters.tab --sequence-reweighting options to script
+
 pod2usage(1) if scalar(@ARGV) == 0;
 GetOptions(
 

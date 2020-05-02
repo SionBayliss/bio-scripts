@@ -1,0 +1,166 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings qw(all);
+
+use Getopt::Long qw(GetOptions :config no_ignore_case);
+use Pod::Usage;
+use File::Basename;
+use FindBin;
+use Cwd 'abs_path';
+my $script_path = abs_path($FindBin::RealBin);
+
+
+# use macsyfinder and TXSS dbs to find T3SS from input GFF3 files
+# requires macsyfinder and appropriate macsy libs
+
+=head1  SYNOPSIS
+
+	find_T3SS_GFF
+	
+ Input variants:
+ --gff	path to gff3 file [required] 
+ --output 	output directory [required]
+ 
+ General options:
+ -p|--profiles	path to profiles [required]
+ -d|--definitions path to definitions [required
+ -x|--execute	path to executable [required]
+ -c|--config	path to config for additional options [provided]
+  
+ Misc options:
+ -h|--help 	usage information
+  
+=cut
+
+# command line options
+my $input = ();
+my $output = '';
+
+my $pro = "";
+my $def = "";
+my $exe = "";
+my $config = "";
+
+my $help = 0;
+
+pod2usage(1) if scalar(@ARGV) == 0;
+GetOptions(
+
+	'input=s'	=> \$input,
+	'output=s'	=> \$output,
+	
+	'profile=s' => \$pro,
+	'definitions=s' => \$def,
+	
+	'x|executable=s' => \$exe,
+	'config=s' => \$config,
+	
+	'help|?' 	=> \$help,
+
+) or die pod2usage(1);
+pod2usage(1) if $help;
+
+# check requirements 
+die " - ERROR: output directory is required.\n" if $output eq "";
+die " - ERROR: executable path is required.\n" if $exe eq "";
+die " - ERROR: profile path is required.\n" if $pro eq "";
+die " - ERROR: definitions path is required.\n" if $def eq "";
+
+# check for local config file
+if ($config eq ""){
+	$config = "$script_path/macsyfinder.conf";
+}
+
+# make output directory(ies) 
+if ( !(-d $output) ){
+	die " - ERROR: could not make output directory\n" unless mkdir "$output";  
+}
+
+if ( -f $input ){
+	
+	print " - processing a single file ($input)\n";
+	
+	# extract aa sequence from gff
+	system("$script_path/extract_feature_sequences_GFF -i $input  -o $output/temp.fasta");
+
+	# make results directory, clear it if it already exists 
+	if ( !(-d "$output/results") ){
+		die " - ERROR: could not make output directory\n" unless mkdir "$output/results/";  
+	}else{
+		unlink glob "'$output/results/*.*'"; # clear contents 
+		if ( -d "$output/results/hmmer_results" ){
+			unlink glob "'$output/results/hmmer_results/*.*'"; # clear contents 
+			rmdir("$output/results/hmmer_results/");
+		}
+	}
+	
+	# replace _ with - in fasta (indexing error)
+	system("sed s/\_/--/g < $output/temp.fasta > $output/temp.fasta2 && mv $output/temp.fasta2 $output/temp.fasta");
+	
+	# run macsyfinder 
+	system("$exe/macsyfinder all -o $output/results/ --sequence $output/temp.fasta --db-type ordered_replicon --replicon-topology linear --def $def -p $pro --coverage-profile 0.25 --config $config --idx --index-db makeblastdb > $output/macsyfinder.log_file.txt");  
+
+}elsif( -d $input ){
+
+	# find all files with gff extensions 
+	my @files = glob "$input/*.gff";
+	my $no_files = @files;
+	
+	# feedback
+	print " - processing $no_files files with .gff extention\n";
+	
+	# concatenate summary files and rename for output
+	system("echo -n \"\" > $output/summary_concatenate.tab");
+	my $f_count = 0;
+	
+	# process file by file
+	for my $file (@files){
+	
+		++$f_count;
+		
+		# find file name
+		my ($name,$path,$suffix) = fileparse($file,".gff");
+
+		# make results directory, clear it if it already exists 
+		if ( !(-d "$output/$name") ){
+			die " - ERROR: could not make output directory\n" unless mkdir "$output/$name/";  
+		}else{			
+			if ( !(-d "$output/$name/results") ){
+				die " - ERROR: could not make output directory\n" unless mkdir "$output/$name/results/";  
+			}else{
+				unlink glob "'$output/$name/results/*.*'"; # clear contents 
+				if ( -d "$output/$name/results/hmmer_results/"){
+					unlink glob "'$output/$name/results/hmmer_results/*.*'"; # clear contents 
+					rmdir ("$output/$name/results/hmmer_results/") or die "-blergh";
+				}
+			}
+		}
+				
+		# extract aa sequence from gff
+		system("$script_path/extract_feature_sequences_GFF -i $input/$name.gff -o $output/$name/temp.fasta");
+
+		# replace _ with -- in fasta (indexing error)
+		system("sed s/\_/--/g < $output/$name/temp.fasta > $output/$name/temp.fasta2 && mv $output/$name/temp.fasta2 $output/$name/temp.fasta");
+	
+		# run macsyfinder 
+		system("$exe/macsyfinder all -o $output/$name/results/ --sequence $output/$name/temp.fasta --db-type ordered_replicon --replicon-topology linear --def $def -p $pro --coverage-profile 0.25 --config $config > $output/$name/macsyfinder.log_file.txt --idx");  
+		
+		# make summary temp file 
+		if ($f_count == 1){ 
+		   `cat $output/$name/results/macsyfinder.summary  > $output/sum_temp.tab`;
+		}else{
+		   ` awk 'NR >= 2 { print }' $output/$name/results/macsyfinder.summary > $output/sum_temp.tab`;
+		}
+		
+		# replace UserReplicon with name 
+		`sed s/^UserReplicon/$name/g < $output/sum_temp.tab > $output/sum_temp2.tab`;
+		
+		# add to summary file  
+		`cat $output/summary_concatenate.tab $output/sum_temp2.tab > $output/summary_concatenate.tab2 && mv $output/summary_concatenate.tab2 $output/summary_concatenate.tab`;
+		
+		# tidy up 
+		unlink("$output/sum_temp.tab", "$output/sum_temp2.tab");
+	}
+}
+print " - complete\n";

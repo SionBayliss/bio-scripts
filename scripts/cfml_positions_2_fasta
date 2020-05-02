@@ -1,0 +1,102 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+
+use Getopt::Long qw(GetOptions);
+use Pod::Usage;
+use Cwd 'abs_path';
+use File::Basename;
+use Text::Wrap;
+
+# convert CFML positions and ancestral states to multifasta file
+
+=head1  SYNOPSIS
+
+ subset_multifasta -i /path/to/fasta -l /pathto/list -o /path/to/output
+
+ Input/Output:
+ -i|--input		input *.ML_sequence.fasta [required]
+ -p|--positions	input *.position_cross_reference.txt [required]
+ -o|--output	output file [required]	
+ 
+ -h|--help		usage information
+ 
+=cut
+
+# switch off buffering
+$|++;
+
+# command line options
+my $help = 0;
+
+my $positions_file = "";
+my $input_file = '';
+my $output_dir = '';
+
+GetOptions(
+
+	'help|?' 	=> \$help,
+	'input=s' 	=> \$input_file,
+	'positions=s' 	=> \$positions_file,
+	'output=s'	=> \$output_dir,
+			
+) or pod2usage(1);
+pod2usage(1) if $help;
+
+# check for mandatory input arguments
+pod2usage( {-message => q{input fasta is a required argument}, -exitval => 1, -verbose => 1 } ) if $input_file eq ''; 
+pod2usage( {-message => q{positons is a required argument}, -exitval => 1, -verbose => 1 } ) if $positions_file eq ''; 
+pod2usage( {-message => q{output is a required argument}, -exitval => 1, -verbose => 1 } ) if $output_dir eq '';
+
+# expand input and output files/directories
+$input_file = abs_path($input_file);
+die "Input file not found.\n" unless -f "$input_file";
+
+# parse positions
+my @positions = ();
+open POS, "$positions_file" or die " - ERROR: could not open list - $positions_file\n";
+while (<POS>){
+
+	my $line = $_;
+	@positions = split(/,/, $line, -1);
+	
+}close POS;
+
+# feedback 
+my $size = @positions;
+print " - alignment was $size bp\n"; 
+
+# parse ML sequence file 
+my %sequence = ();
+my $header = "";
+open FILE, "$input_file" or die "$input_file file did not open\n";
+while (<FILE>){
+
+	if(/^>(.+)$/ ){
+		
+		$header = $1;
+		
+	}elsif(/^([ATCGN\-]+)$/){
+		
+		my $seq = $1;
+		push(@{$sequence{$header}}, $seq) ;
+		
+	}
+}
+
+# open output file 
+open OUT, ">$output_dir" or die " - ERROR: could not open output file\n";
+
+# convert ML sequence to full alignment
+for my $sample (sort keys %sequence){
+
+	# convert to full array and add N to beggining to offset zero indexing. 
+	my $seq = join("", "N", @{$sequence{$sample}});
+	my @seq = split("", $seq);
+	
+	my @subseq = @seq[@positions];
+	my $outseq = join("", @subseq);
+	print OUT ">$sample\n$outseq\n";
+} 
+

@@ -229,8 +229,10 @@ while(<VCF>){
 		# replace alternative gap characters with *
 		$alt =~ s/\-/\*/g;
 		$ref =~ s/\-/\*/g;
-		$alt =~ s/\N/\*/g if $aa == 0;
-		$ref =~ s/\N/\*/g if $aa == 0;
+		if ($aa == 0){
+			$alt =~ s/N/\*/;
+			$ref =~ s/N/\*/;
+		}
 		
 		# store all alleles (inc ref as allele)
 		my @alleles = ( $ref , split(/,/, $alt ) );
@@ -245,10 +247,10 @@ while(<VCF>){
 		$no_variants += $no_alleles;
 		$no_alleles = $no_alleles - $n_Ns if $ns == 0;
 		my %al_hash = ();
-		
+				
 		# process if there is > 1 allele 
 		if ( $no_alleles > 1 ){
-			
+
 			my %inc = ();
 			my $no_alleles_ch2 = 0; 
 			for my $a_idx (0..$#alleles) {

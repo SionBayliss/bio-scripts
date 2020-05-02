@@ -32,7 +32,6 @@ my $gff = "";
 my $gff_igr = "";
 my $column = 0;
 my $pirate = "";
-my $pheno = "";
 my $filter = 1;
 
 my $help = 0;
@@ -45,7 +44,6 @@ GetOptions(
 	'gff-igr=s' 	=> \$gff_igr,
 	'column=i'	=> \$column,
 	'pirate=s' => \$pirate,
-	'phenotypes' => \$pheno,
 	'output=s'	=> \$output,
 	'treewas-filter=f' => \$filter,
 	
@@ -244,7 +242,7 @@ while (<IN>){
 			my $org = $vars[$column];
 		
 			# replace column value
-			die " - ERROR: no feature for position ($pos_no)\n" unless $pos{$pos_no};
+			die " - ERROR: no feature for position ($pos_no)\n line - @vars\n" unless $pos{$pos_no};
 			my $replace_idx = $pos{$pos_no};
 			my $replace = $features[$replace_idx-1];
 			$allele = $replace;
@@ -261,7 +259,7 @@ while (<IN>){
 			#print "$pos_no-$org\n";
 		
 			# replace column value
-			die " - ERROR: no feature for position ($pos_no)\n" if !($pos_igr{$pos_no});			
+			die " - ERROR: no feature for position ($pos_no)\n line - @vars\n" if !($pos_igr{$pos_no});			
 			my $replace_idx = $pos_igr{$pos_no};
 			my $replace = $features_igr[$replace_idx-1];
 			$allele = $replace;
@@ -310,7 +308,7 @@ while (<IN>){
 	
 		# identify gene family from allele number
 		#print "$allele\n";
-		if ( ($var_type ne "igr") && ($var_type ne "igr_snp") ){
+		if ( ($var_type ne "intergenic_pa") && ($var_type ne "igr_snp") ){
 		
 			if( $allele =~ /^(\S+\_\d+)\_\d+/ ){
 				$family = $1;	

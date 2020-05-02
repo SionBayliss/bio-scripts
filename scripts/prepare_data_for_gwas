@@ -486,7 +486,7 @@ my $pe_in = join(" ", @pe_in);
 
 my @suff_pe = ();
 push(@suff_pe, "c,a,aa,d,ff") if ($pir ne "");
-push(@suff_pe, "igr") if ($pig ne "");
+push(@suff_pe, "igrpa") if ($pig ne "");
 my $suff_pe = join(",", @suff_pe);
 
 # run combine variants

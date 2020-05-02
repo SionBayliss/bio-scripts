@@ -1,0 +1,121 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+
+use Getopt::Long qw(GetOptions);
+use Pod::Usage;
+use Cwd 'abs_path';
+use File::Basename;
+use Text::Wrap;
+
+# rename multifasta using list
+
+=head1  SYNOPSIS
+
+ crop_alignment -i /path/to/fasta -o /path/to/output
+
+ Input/Output:
+ -i|--input		input multifasta file [required]
+ -o|--output	output file [required]	
+ -p|--positions	comma delimited positions to include [required]
+ 
+ -h|--help		usage information
+ 
+=cut
+
+# switch off buffering
+$|++;
+
+# command line options
+my $help = 0;
+
+my $positions = "";
+my $input_file = '';
+my $output_dir = '';
+
+GetOptions(
+
+	'help|?' 	=> \$help,
+	
+	'input=s' 	=> \$input_file,
+	'positions=s' 	=> \$positions,
+	'output=s'	=> \$output_dir,
+			
+) or pod2usage(1);
+pod2usage(1) if $help;
+
+# check for mandatory input arguments
+pod2usage( {-message => q{input fasta is a required argument}, -exitval => 1, -verbose => 1 } ) if $input_file eq ''; 
+pod2usage( {-message => q{positions is a required argument}, -exitval => 1, -verbose => 1 } ) if $positions eq ''; 
+pod2usage( {-message => q{output is a required argument}, -exitval => 1, -verbose => 1 } ) if $output_dir eq '';
+
+# expand input and output files/directories
+$input_file = abs_path($input_file);
+die "Input file not found.\n" unless -f "$input_file";
+
+# split input position arg
+my @pos = split(/,/, $positions,-1);
+die " - ERROR: positions must be two comma seperated integers\n" if (@pos>2 || @pos<2);
+my $pos1 = $pos[0]; 
+my $pos2 = $pos[1];
+my $length = $pos2-$pos1;
+
+# feedback
+print " - cropping alignment between $pos1 - $pos2 (length = $length bp)\n";
+
+# [redundant] parse list
+my %shash = ();
+my %rename = ();
+my @samples = keys(%shash);
+
+# open fasta file 
+open OUT, ">$output_dir" or die " - ERROR: could not open output file\n";
+
+# parse fasta file and store sequence
+my @seq_store = ();
+open FILE, "$input_file" or die "$input_file file did not open\n";
+while (<FILE>){
+	
+	if(/^>(.+)$/ ){
+		
+		# store cropped sequence
+		if (scalar(@seq_store) > 0){
+		
+			my $seq = join("", @seq_store);
+			
+			# sanity check 
+			if (length($seq)<$pos2){
+				die " - ERROR: positions outside of sequence positions\n";
+			}
+			my $seq_out = substr($seq, $pos1-1, $pos2-$pos1+1);
+			print OUT $seq_out."\n";
+		}
+		
+		# print new header
+		my $header = $1;
+		print OUT ">$header\n";
+		@seq_store = ();
+		
+	}elsif(/^([ATCGN\-]+)/){
+		
+		push(@seq_store, $1); 
+	}
+}
+# store final croppped sequence
+if (scalar(@seq_store) > 0){
+	my $seq = join("", @seq_store);
+	
+	# sanity check 
+	if (length($seq)<$pos2){
+		die " - ERROR: positions outside of sequence positions\n";
+	}
+	my $seq_out = substr($seq, $pos1-1, $pos2-$pos1+1);
+	print OUT $seq_out."\n";
+	
+}
+
+# feedback
+print " - completed\n";
+
+exit
