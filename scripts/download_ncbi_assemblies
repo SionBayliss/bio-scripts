@@ -24,6 +24,7 @@ use File::Basename;
  		Scaffold, all [default: Complete Genome] 
  -n|--number	max number of samples to download [default: off]
  -d|--download	toggle download of isolates [default: on]	
+ -g|--genebank	use ganebank accessions if available [default: refseq]
  
  -h|--help 	usage information
  
@@ -36,6 +37,7 @@ use File::Basename;
 my $input = '';
 my $output_dir = '';
 
+my $genbank = 0;
 my $taxid = "";
 my $status = "Complete Genome";
 my $add_strain = 0;
@@ -49,6 +51,7 @@ GetOptions(
 	'input=s' 	=> \$input,
 	'output=s'	=> \$output_dir,
 	
+	'genebank=s' => \$genbank, 
 	'taxid=s' 	=> \$taxid,
 	'status=s' => \$status, 
 	'add-strain' => \$add_strain,
@@ -61,7 +64,8 @@ pod2usage(1) if $help;
 
 # store taxids in hash 
 my @ti = split(/,/, $taxid);
-my %taxid_hash = map {$_} @ti;
+my %taxid_hash;
+for (@ti) {$taxid_hash{$_} = 1};
 
 # check dependencies
 die " - ERROR: output directory not specified\n" if $output_dir eq "";
@@ -90,8 +94,11 @@ open SUM, ">$output_dir/summary.tab" or die " - ERROR: output summary ($output_d
 
 
 # parse input file - store relevant info
+my $lines = 0;
 my $count = 0;
 my $file_type = "NA";
+my %indexes = ();
+my $exclude = "NA";
 print " - 0 samples downloaded";
 open IN, $input or die " - ERROR: input file did not open.\n";
 while(<IN>){
@@ -105,37 +112,72 @@ while(<IN>){
 	if(/^# assembly/){
 		print SUM "id\t$line\n";
 		$file_type = "rs";
+		
+		# detect columns indexes
+		for my $i (0..scalar(@vars)-1){
+			$indexes{"assembly"} = $i+1 if ($vars[$i] eq "# assembly_accession");
+			$indexes{"species"} = $i+1 if ($vars[$i] eq "organism_name");
+			$indexes{"type"} = $i+1 if ($vars[$i] eq "assembly_level");
+			$indexes{"strain"} = $i+1 if ($vars[$i] eq "isolate");
+			$indexes{"taxonid"} = $i+1 if ($vars[$i] eq "species_taxid");
+			$indexes{"ftp"} = $i+1 if ($vars[$i] eq "ftp_path");
+			
+			$exclude = $i+1 if ($vars[$i] eq "excluded_from_refseq");  
+		}
+		
+		# sanity check
+		my $no_headers = scalar(keys(%indexes));
+		die " - missing headers in file (n=$no_headers)\n" if $no_headers != 6; 
+
 	}
 	if(/^#Organism/){
 		print SUM "id\t$line\n";
 		$file_type = "gn";
+
+		# detect columns indexes
+		for my $i (0..scalar(@vars)-1){
+			$indexes{"assembly"} = $i+1 if ($vars[$i] eq "Assembly");
+			$indexes{"species"} = $i+1 if ($vars[$i] eq "#Organism Name");
+			$indexes{"type"} = $i+1 if ($vars[$i] eq "Level");
+			$indexes{"strain"} = $i+1 if ($vars[$i] eq "Strain");
+			$indexes{"taxonid"} = $i+1 if ($vars[$i] eq "Organism Groups");
+			
+			$indexes{"ftp"} = $i+1 if ( ($vars[$i] eq "GenBank FTP") && ($genbank = 1) );
+			$indexes{"ftp"} = $i+1 if ( ($vars[$i] eq "RefSeq FTP") && ($genbank = 0) );			
+		}
+		
+		# sanity check
+		my $no_headers = scalar(keys(%indexes));
+		die " - missing headers in file (n=$no_headers)\n" if $no_headers != 6; 
+		
 	}elsif(/^#/){
 	# store info per matching isolate
 	}else{
+	
+		++$lines;
 		
 		# set vars
 		my $acc = ""; my $ftp = ""; my $excluded = ""; my $tax_id = ""; my $species = ""; my $type = ""; my $strain= "";
 		
 		# assign appropriate variables
 		if ($file_type eq "rs"){ # refseq
-			$acc = $vars[0]; # accession
-			$ftp = $vars[19]; # ftp
-			$excluded = $vars[20]; # excluded
-			$tax_id = $vars[6]; # taxonid
-			$species = $vars[7]; # species
-			$type = $vars[11]; # type
-			$strain = $vars[8]; # strain
 		}elsif($file_type eq "gn"){ # ncbi genome table 
-			$acc = $vars[7]; # accession
-			$ftp = $vars[18]; # ftp # genebank
-			$excluded = ""; # excluded
-			$tax_id = $vars[2]; # taxonid # cladeID
-			$species = $vars[0]; # species
-			$type = $vars[16]; # type
-			$strain = $vars[1]; # strain
 		}else{
 			die " - ERROR: format of input file not recognised\n";
 		}
+		
+		# store data per isolate 	
+		if ($exclude ne "NA"){
+			$excluded = $vars[$exclude-1]; # excluded
+		}
+		
+		# vars 
+		$acc = $vars[$indexes{"assembly"}-1]; # accession
+		$ftp = $vars[$indexes{"ftp"}-1]; # ftp # genebank
+		$tax_id = $vars[$indexes{"taxonid"}-1]; # taxonid # cladeID
+		$species = $vars[$indexes{"species"}-1]; # species
+		$type = $vars[$indexes{"ftp"}-1]; # type
+		$strain = $vars[$indexes{"strain"}-1]; # strain	
 		
 		# filter on taxon id and assembly status 
 		if ( (($taxid eq "") || ($taxid_hash{$tax_id})) && ( ($type eq $status) || ($status eq "all") ) && ($excluded eq "") ){
@@ -180,6 +222,10 @@ while(<IN>){
 				++$count;
 				print "\r - $count samples downloaded";
 			
+			}else{
+				# increment count
+				++$count;
+				print "\r - $count samples downloaded";
 			}
 			
 			if ($number ne ""){
@@ -191,6 +237,6 @@ while(<IN>){
 }
 
 # feeback
-print "\r - $count samples downloaded\n";
+print "\r - $count/$lines samples downloaded\n";
 
 
