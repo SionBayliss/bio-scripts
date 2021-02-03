@@ -1,0 +1,183 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+use Getopt::Long;
+use Pod::Usage;
+use Cwd 'abs_path';
+use File::Basename;
+
+
+# aggregate pyseer hits into one file
+
+=head1
+
+
+	abricate_gffs -i /path/to/gff_directory/ -o /path/to/output_directory/
+	
+	-i 	path to input directory containing gffs/fasta
+	-l	single column txt file of samples to include 
+	-a 	arguments for abricate
+	-o 	output directory
+	-p 	output summary prefix
+
+	-h	help
+	
+=cut
+
+# switch off buffering 
+#$|++;
+
+# command line options
+my $input = '';
+my $list = '';
+my $output = '';
+my $args = '';
+my $output_name = "abricate";
+
+my $help = 0;
+
+GetOptions(
+
+	'help|?' 	=> \$help,
+	
+	'input=s' 	=> \$input,
+	'list=s' 	=> \$list,
+	
+	'args=s'	=> \$args,
+	
+	'output=s' => \$output,
+	'prefix=s' => \$output_name,
+			
+) or pod2usage(1);
+pod2usage(1) if $help;
+
+pod2usage( {-message => q{output directory is required}, -exitval => 1, -verbose => 1 } ) if ($output eq ''); 
+pod2usage( {-message => q{input directory is required}, -exitval => 1, -verbose => 1 } ) if ($input eq ''); 
+
+# find abs_path to input diretory
+my $input_dir = abs_path($input);
+die " - ERROR: input directory does not exist" if !(-d $input_dir);
+
+# check output directory exists or can be created
+unless( -d $output ){ unless ( mkdir $output ) { die " - ERROR: could not create output directory ($output)\n" } };
+$output = abs_path($output);
+
+# parse list file 
+my %inc = ();
+my $no_samples_list = 0;
+if ($list ne "") {
+	open LIST, $list or die " - ERROR: list file could not be found ($list)";
+	while(<LIST>){
+	
+		my $line = $_;
+		chomp $line;
+	
+		my @vars = split(/\t/, $line, -1);
+		$inc{$vars[0]} = 1;
+	
+	}close LIST;
+	
+	# feedback
+	$no_samples_list = scalar(keys(%inc));
+	print " - $no_samples_list samples in list file.\n";
+	
+}
+
+# find all files in input directory
+opendir(DH, $input_dir);
+my @files = readdir(DH);
+closedir(DH);
+
+my @file_list = ();
+foreach my $file (@files) {
+   
+   if ( $file =~ /(gff$|fas|fna|fasta|fa)$/ ){
+	
+	my @suffixlist = (".gff",".fas", ".fna", ".fasta", ".fa");
+	my ($f_name,$path,$suffix) = fileparse($file,@suffixlist);
+	
+  	if ( $no_samples_list > 0 ){
+  		push(@file_list, $file) if $inc{$f_name};
+  	}else{
+  		push(@file_list, $file);
+  	}	 
+   }
+}
+
+# feedback
+my $no_samples = scalar(@file_list);
+if ( $no_samples_list > 0 ){
+	print " - $no_samples/$no_samples_list samples found in input directory.\n";
+}else{
+	print " - $no_samples samples found in input directory.\n";
+}
+
+# make log file
+my $abricate_log = "$output/$output_name.log";
+`echo -n "" > $abricate_log`;
+
+# run abricate on samples
+my @sum_list = ();
+print " - samples processed 0/$no_samples    "; 
+for my $i (0..$#file_list){
+
+	# file
+	my $f = $file_list[$i];
+	my @suffixlist = (".gff",".fas", ".fna", ".fasta", ".fa");
+	my ($name,$path,$suffix) = fileparse($f,@suffixlist);
+	
+	my $inp = abs_path($input);
+	my $fa = "$inp/$f";
+	my $temp = 0;
+	if ($suffix eq "gff"){
+		my $gff = sprintf("%s/%s.gff", $input_dir, $f);
+		
+		$temp = 1;
+		
+		# convert to fasta
+		$fa = sprintf("%s/%s.temp.fa", $output, $f);
+		system("sed -e \'1,/##FASTA/ d\' < $gff > $fa");
+		print " - ERROR: gff -> fa failed for $f\n" if $?;
+	}
+	
+	# run abricate
+	my $out = sprintf("%s/%s.abricate.tsv", $output, $name);
+	my $arg = "abricate $args $fa > $out 2>>$abricate_log";
+	#die $arg."\n";
+	system("$arg"); 
+	print " - ERROR: abricate failed for $f\n" if $?;
+	
+	# strip path and suffix from file
+	`sed \'s|\.temp\.fa||g\' < $out > $out.temp1`;
+	`sed \'s|$output\/||g\' < $out.temp1 > $out.temp2`;
+	`mv  $out.temp2 $out`;
+	
+	# delete temp files
+	unlink($fa) if $temp == 1;
+	unlink("$out.temp1");
+	
+	# add to list for summary
+	push( @sum_list, $out);
+	
+	# feedback
+	my $s = $i+1;
+	print "\r - samples processed $s/$no_samples    "; 
+		
+} 
+print "\r - samples processed $no_samples/$no_samples    \n"; 
+
+# combine outputs
+my $out_sum = sprintf("%s/%s.summary.tsv", $output, $output_name);
+my $sum_f = join(" ", @sum_list); 
+system("abricate --summary $sum_f --nopath > $out_sum 2>>$abricate_log");
+print " - ERROR: abricate summary failed, see $abricate_log" if $?;
+
+# strip path and suffix from file
+`sed \'s|\.abricate\.tsv||g\' < $out_sum > $out_sum.temp1`;
+`sed \'s|$output\/||g\' < $out_sum.temp1 > $out_sum.temp2`;
+`mv  $out_sum.temp2 $out_sum`;
+unlink("$out_sum.temp1");
+
+# feedback
+print " - complete\n";

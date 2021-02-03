@@ -9,7 +9,7 @@ use Cwd 'abs_path';
 use File::Basename;
 use Text::Wrap;
 
-# subset multifasta on list
+# subset multifasta on list or positions
 
 =head1  SYNOPSIS
 
@@ -17,8 +17,9 @@ use Text::Wrap;
 
  Input/Output:
  -i|--input		input multifasta file [required]
- -l|--list		list of samples [required]
+ -l|--list		list of samples [optional]
  -o|--output		output file [required]	
+ -p|--positions	positions to extract, dash seperated [optional]
  
  -h|--help		usage information
  
@@ -35,19 +36,21 @@ my $list = "";
 my $input_file = '';
 my $output_dir = '';
 
+my $pos = "";
+
 GetOptions(
 
 	'help|?' 	=> \$help,
 	'input=s' 	=> \$input_file,
 	'list=s' 	=> \$list,
 	'output=s'	=> \$output_dir,
-			
+	'positions=s'  => \$pos,	
 ) or pod2usage(1);
 pod2usage(1) if $help;
 
 # check for mandatory input arguments
 pod2usage( {-message => q{input fasta is a required argument}, -exitval => 1, -verbose => 1 } ) if $input_file eq ''; 
-pod2usage( {-message => q{list is a required argument}, -exitval => 1, -verbose => 1 } ) if $list eq ''; 
+#pod2usage( {-message => q{list is a required argument}, -exitval => 1, -verbose => 1 } ) if $list eq ''; 
 pod2usage( {-message => q{output is a required argument}, -exitval => 1, -verbose => 1 } ) if $output_dir eq '';
 
 # expand input and output files/directories
@@ -79,19 +82,40 @@ open OUT, ">$output_dir" or die " - ERROR: could not open output file\n";
 
 # parse fasta file
 my $store = 0;
+my @seq = (); 
+my $header = "";
 open FILE, "$input_file" or die "$input_file file did not open\n";
 while (<FILE>){
 	
 	if(/^>(.+)$/ ){
 		
-		my $header = $1;
+		$header = $1;
+		
+		# print previous sequence
+		if ($store == 1){
+		
+			my $s = join("", @seq);
+			
+			if ($pos ne ""){
+			
+				my @p = split(/\-/, $pos);
+				die " -  ERROR: wrong input for -p\n" if scalar(@p) != 2;
+				
+				my $diff = $p[1]-$p[0]+1;
+				my $o_seq = substr($s, $p[0], $diff); 	
+				print OUT ">$header\n$o_seq\n"; 
+				
+			}else{
+				print OUT ">$header\n$s\n";
+			}
+		
+		}
 		
 		# print and store if matching
-		if ($shash{$header}){
+		if ( ($list eq "") || ($shash{$header}) ){
 			$store = 1;
 			$shash{$header} = 2;
 			
-			print OUT ">$header\n";
 		}else{
 			$store = 0;
 		}
@@ -100,8 +124,29 @@ while (<FILE>){
 		
 	}elsif(/^([ATCGN\-]+)$/){
 		
-		print OUT "$1\n" if $store == 1; 
+		push(@seq,"$1") if $store == 1; 
 	}
+}
+
+# print last sequence
+if ($store == 1){
+
+	my $s = join("", @seq);
+	
+	if ($pos ne ""){
+	
+		my @p = split(/\-/, $pos);
+		die " -  ERROR: wrong input for -p\n" if scalar(@p) != 2;
+		
+		my $diff = $p[1]-$p[0]+1;
+		my $o_seq = substr($s, $p[0], $diff);
+		
+		print OUT ">$header\n$o_seq\n"; 
+		
+	}else{
+		print OUT ">$header\n$s\n";
+	}
+
 }
 
 # check all samples found
