@@ -1,0 +1,117 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+
+use Getopt::Long qw(GetOptions);
+use Pod::Usage;
+use Cwd 'abs_path';
+use File::Basename;
+use Text::Wrap;
+
+# filter multifasta on length of first sequence
+
+=head1  SYNOPSIS
+
+ filter_multifasta_on_length -i /path/to/fasta -o /path/to/output_fasta
+
+ Input/Output:
+ -i|--input		input multifasta file [required]
+ -o|--output		output file [required]	
+ 
+ -h|--help		usage information
+ 
+=cut
+
+# switch off buffering
+$|++;
+
+# command line options
+my $help = 0;
+
+my $list = "";
+
+my $input_file = '';
+my $output_dir = '';
+
+GetOptions(
+
+	'help|?' 	=> \$help,
+	'input=s' 	=> \$input_file,
+	'output=s'	=> \$output_dir,
+			
+) or pod2usage(1);
+pod2usage(1) if $help;
+
+# check for mandatory input arguments
+pod2usage( {-message => q{input fasta is a required argument}, -exitval => 1, -verbose => 1 } ) if $input_file eq ''; 
+pod2usage( {-message => q{output is a required argument}, -exitval => 1, -verbose => 1 } ) if $output_dir eq '';
+
+# expand input and output files/directories
+$input_file = abs_path($input_file);
+die " - ERROR: input file not found.\n" unless -f "$input_file";
+
+# redundant
+my @samples = (); 
+
+# open output fasta file 
+open OUT, ">$output_dir" or die " - ERROR: could not open output file\n";
+
+# parse fasta file
+my @seq_store = ();
+my $sample_length = 0;
+my $total_samples = 0;
+my $rejected_samples = 0;
+my $header = "";
+open FILE, "$input_file" or die "$input_file file did not open\n";
+while (<FILE>){
+	
+	if(/^>(.+)$/ ){
+		
+		my $current_header = $1;
+		++$total_samples;
+		
+		# check if sample length matches stored sample length 
+		unless (@seq_store == 0){
+		
+			my $seq = join("", @seq_store);
+			my $l = length($seq);
+			 
+			if($sample_length == 0){
+				$sample_length = $l;
+				print " - sample length set to $sample_length\n";
+				print OUT ">$header\n$seq\n";
+			}elsif ($sample_length == $l) {
+				print OUT ">$header\n$seq\n";
+			}else{
+				print " - $header: length ($l) does not match first sample length ($sample_length)\n";
+				++$rejected_samples;
+			}
+			
+		} 
+		
+		# store header reset seq_store
+		$header = $current_header;
+		@seq_store = ();
+		
+	}elsif(/^([ATCGN\-]+)$/){
+		
+		push(@seq_store, $1);
+		 
+	}
+}
+
+# check final sample
+my $seq = join("", @seq_store);
+my $l = length($seq);
+if ($sample_length == $l) {
+	print OUT ">$header\n$seq\n";
+}else{
+	print " - $header: does not match first sample length ($sample_length)";
+	++$rejected_samples;
+}
+
+# feedback
+print " - FINISHED: $rejected_samples rejected samples from $total_samples sequences in file.\n";
+
+exit
