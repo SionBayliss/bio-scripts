@@ -1,0 +1,152 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+use Getopt::Long;
+use Pod::Usage;
+use Cwd 'abs_path';
+
+# iteratively apply pilon to assembly until cutoff rule reached
+
+=head1
+
+
+	iterate_pilon -i /path/to/assembly.fasta -o /path/to/output_directory/
+	
+	Input/Output:
+	-i 	path to input assembly [required]
+	-pe1 	path to input forward reads [required]
+	-pe2 	path to input reverse reads [required]
+	-o 	output directory [required]
+	
+	Options:
+	-a 	arguments for pilon [optional]
+	-c	maximum number of iteration [defauly: 5]
+	-m	stop iterating after pilon produces this number 
+		of corrected variants [default: 0]
+
+	Misc:
+	-t	threads [default: 1]
+	-h	help
+	
+=cut
+
+# switch off buffering 
+#$|++;
+
+# command line options
+my $input = '';
+my $pe1 = "";
+my $pe2 = "";
+my $output = '';
+
+my $args = '';
+
+my $cutoff = "5";
+my $min = "0";
+
+my $threads = 1;
+my $help = 0;
+
+GetOptions(
+
+	'help|?' 	=> \$help,
+	
+	'input=s' 	=> \$input,
+	'pe1=s' 	=> \$pe1,
+	'pe2=s' 	=> \$pe2,
+	'output=s' => \$output,
+
+	'args=s'	=> \$args,
+	'cutoff=i'	=>\$cutoff,
+	'min=i'	=>\$min,
+	
+	'threads=i'	=>\$threads,	
+			
+) or pod2usage(1);
+pod2usage(1) if $help;
+
+pod2usage( {-message => q{output directory is required}, -exitval => 1, -verbose => 1 } ) if ($output eq ''); 
+pod2usage( {-message => q{input assembly is required}, -exitval => 1, -verbose => 1 } ) if ($input eq ''); 
+pod2usage( {-message => q{pe1 file is required}, -exitval => 1, -verbose => 1 } ) if ($pe1 eq ''); 
+pod2usage( {-message => q{pe2 file is required}, -exitval => 1, -verbose => 1 } ) if ($pe2 eq ''); 
+
+# check input files exist
+die " - ERROR: $input could not be found." if !(-f $input);
+die " - ERROR: $pe1 could not be found." if !(-f $pe1);
+die " - ERROR: $pe2 could not be found." if !(-f $pe2);
+
+# check output directory exists or can be created
+unless( -d $output ){ unless ( mkdir $output ) { die " - ERROR: could not create output directory ($output)\n" } };
+$output = abs_path($output);
+
+# set working file 
+my $working_file = $input;
+
+# run pilon
+my $check = 1;
+my $it = 0;
+while ($check == 1){
+	
+	# increment iteration
+	++$it;
+	
+	# feedback
+	print " - iteration: $it\n";
+	
+	# check for already processed files
+	if ( (-f "$output/pilon.it_$it.changes") && (-f "$output/pilon.it_$it.fasta") && (-f "$output/log.it_$it.txt") ){
+		print " - files from previous iteration found - skipping\n";
+	}else{
+		
+		# make log file
+		my $log = "$output/log.it_$it.txt";
+		
+		# index working assembly
+		my $ind1 = system("bwa index $working_file >$log 2> $log");
+		die " - ERROR: bwa index failed on $working_file - check log file\n" if $?;
+		
+		# map reads to working assembly
+		my $bwa_com = "bwa mem -t $threads $working_file $pe1 $pe2 2>>$log | samtools view - -Sb 2>>$log | samtools sort - -\@$threads -o $output/mapping.it_$it.sorted.bam >>$log 2>>$log";
+		#print $bwa_com;
+		system($bwa_com);
+		die " - ERROR: bwa failed - check log file\n" if $?;
+
+		# index bam 
+		my $ind2 = system("samtools index $output/mapping.it_$it.sorted.bam >>$log 2>>$log");
+		die " - ERROR: samtools index failed on $working_file - check log file\n" if $?;
+		
+		# run pilon
+		my $pilon_com = "pilon --genome $working_file --fix all --changes --frags $output/mapping.it_$it.sorted.bam --threads $threads --output $output/pilon.it_$it >>$log 2>>$log";
+		#print $pilon_com."\n";
+		system($pilon_com);
+		die " - ERROR: pilon failed - check log file\n" if $?;
+	
+	}
+	
+	# check number of variants
+	my $lines = `cat $output/pilon.it_$it.changes | wc -l`;
+	chomp $lines;
+	print " - $lines variants corrected\n";
+	
+	# check if variant threshold reached
+	if ($lines <= $min){
+		print " - minimum variants achieved ($min)\n";
+		$check = 0;
+	}
+	
+	# check number of iterations
+	if ($it >= $cutoff){
+		print " - maximum iterations reached\n";
+		$check = 0;
+	}
+	
+	# change working file 
+	$working_file = "$output/pilon.it_$it.fasta";
+}
+	
+
+# feedback 
+print " - pilon max iterations reached\n";
+
+exit

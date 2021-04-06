@@ -97,7 +97,7 @@ while (<FILE>){
 		print OUT ">$header\n";
 		@seq_store = ();
 		
-	}elsif(/^([ATCGN\-]+)/){
+	}elsif(/^([atcgnATCGN\-]+)/){
 		
 		push(@seq_store, $1); 
 	}
