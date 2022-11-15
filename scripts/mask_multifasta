@@ -1,0 +1,158 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+
+use Getopt::Long qw(GetOptions);
+use Pod::Usage;
+use Cwd 'abs_path';
+use File::Basename;
+use Text::Wrap;
+
+# subset multifasta on list or positions
+
+=head1  SYNOPSIS
+
+ mask_multifasta -i /path/to/fasta -m /path/to/mask/file -o /path/to/output_aln
+
+ Input/Output:
+ -i|--input		input multifasta alignment [required]
+ -m|--mask		mask file in bed format [optional]
+ -o|--output	output file [required]	
+ 
+ -h|--help		usage information
+ 
+=cut
+
+# switch off buffering
+$|++;
+
+# command line options
+my $help = 0;
+
+my $input_file = '';
+my $output_dir = '';
+
+my $mask = "";
+
+GetOptions(
+
+	'help|?' 	=> \$help,
+	'input=s' 	=> \$input_file,
+	'mask=s' 	=> \$mask,
+	'output=s'	=> \$output_dir,
+) or pod2usage(1);
+pod2usage(1) if $help;
+
+# check for mandatory input arguments
+pod2usage( {-message => q{input fasta is a required argument}, -exitval => 1, -verbose => 1 } ) if $input_file eq ''; 
+pod2usage( {-message => q{mask file is a required argument}, -exitval => 1, -verbose => 1 } ) if $mask eq ''; 
+pod2usage( {-message => q{output is a required argument}, -exitval => 1, -verbose => 1 } ) if $output_dir eq '';
+
+# expand input and output files/directories
+$input_file = abs_path($input_file);
+die "Input file not found.\n" unless -f "$input_file";
+
+# parse mask
+my %mhash;
+my $max = 0;
+if ( $mask ne "" ){
+
+	open MASK, "$mask" or die " - ERROR: could not open list - $mask\n";
+	while (<MASK>){
+	
+		if (/.+/){
+			
+			my $line = $_;
+			chomp $line;
+		
+			my @line = split(/\t/, $line, -1);
+		
+			my $sum = scalar($line[2]) - scalar($line[1]);
+		
+			unless ($line =~ /#/){
+			
+				for my $i ($line[1]..$line[2]){
+				 	$mhash{$i+1} = 1; # account for zero indexing in has (i.e. zero = empty)
+				 	$max = $i if ($i > $max);
+				}
+			}
+		
+		}
+		
+	}close MASK;
+	
+	my @test = ();
+	for (keys %mhash){
+		push(@test,$_);
+	}
+	
+	# feedback
+	my $no_mask = scalar(@test);#length(keys %mhash);
+	print " - $no_mask positions to mask in output\n";
+		
+}
+
+# open fasta file 
+open OUT, ">$output_dir" or die " - ERROR: could not open output file\n";
+
+# test
+#my $test = "AAAAAAAAAA";
+#substr($test, 1, 1, "N");
+#print $test."\n";
+
+# parse fasta file
+my $store = 0;
+my @seq = (); 
+my $header = "";
+open FILE, "$input_file" or die "$input_file file did not open\n";
+while (<FILE>){
+	
+	if(/^>(.+)$/ ){
+		
+		# print previous sequence
+		if ($store == 1){
+		
+			my $s = join("", @seq);
+			
+			# sanity check 
+			if  ( $max > length($s) ){
+				print " ERROR: maskable region outside of length of sequence $header\n";
+			}
+			
+			# substitute bases to mask with Ns
+			for my $i (sort {$a<=>$b} keys %mhash){
+				my $pos = $i-1;
+				substr($s, $pos, 1, "N");
+			}
+			print OUT ">$header\n$s\n";
+
+		}
+		
+		$header = $1;
+		$store = 1;	
+		@seq = ();
+		
+	}elsif(/^([ATCGN\-]+)$/){
+		push(@seq,"$1") if $store == 1; 
+	}
+}
+
+# print last sequence
+my $s = join("", @seq);
+			
+# sanity check 
+if ( $max > length($s) ){
+	print " ERROR: maskable reagion outside of length of sequence $header\n";
+}
+
+# substitute bases to mask with Ns
+for my $i (sort {$a<=>$b} keys %mhash){
+	my $pos = $i-1;
+	substr($s, $pos, 1, "N");
+}
+print OUT ">$header\n$s\n"; 
+	
+print " - complete\n";
+
+exit;
