@@ -50,7 +50,7 @@ unless ($keep){
 	@files_to_keep = (".gff", ".gbk");
 }else{
 	@files_to_keep = split(/,/, $keep);
-	for (@files_to_keep){ die "$_ not file format produced by prokka.\n" if $_ !~ /\.gbk|\.gff|\.faa|\.err|\.ffn|\.fna|\.fsa|\.log|\.tbl|\.sqn|\.txt|\.tsv/ }
+	for (@files_to_keep){ die "$_ not file format produced by prokka.\n" if $_ !~ /\.gbk|\.gbf|\.gff|\.faa|\.err|\.ffn|\.fna|\.fsa|\.log|\.tbl|\.sqn|\.txt|\.tsv/ }
 }
 
 # check for prokka args edit appropriately.

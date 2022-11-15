@@ -64,7 +64,7 @@ if ( $list ne "" ){
 	open LIST, "$list" or die " - ERROR: could not open list - $list\n";
 	while (<LIST>){
 	
-		if(/^(\S+)/){
+		if(/^(.+)$/){
 			$shash{$1} = 1;
 		}
 		
