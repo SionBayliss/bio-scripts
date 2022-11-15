@@ -21,7 +21,7 @@ use Cwd 'abs_path';
 	
 	Options:
 	-a 	arguments for pilon [optional]
-	-c	maximum number of iteration [defauly: 5]
+	-c	maximum number of iteration [default: 5]
 	-m	stop iterating after pilon produces this number 
 		of corrected variants [default: 0]
 
@@ -38,6 +38,7 @@ use Cwd 'abs_path';
 my $input = '';
 my $pe1 = "";
 my $pe2 = "";
+my $ont = "";
 my $output = '';
 
 my $args = '';
@@ -55,7 +56,8 @@ GetOptions(
 	'input=s' 	=> \$input,
 	'pe1=s' 	=> \$pe1,
 	'pe2=s' 	=> \$pe2,
-	'output=s' => \$output,
+	'ont=s'	=> \$ont,
+	'output=s' 	=> \$output,
 
 	'args=s'	=> \$args,
 	'cutoff=i'	=>\$cutoff,
@@ -68,13 +70,20 @@ pod2usage(1) if $help;
 
 pod2usage( {-message => q{output directory is required}, -exitval => 1, -verbose => 1 } ) if ($output eq ''); 
 pod2usage( {-message => q{input assembly is required}, -exitval => 1, -verbose => 1 } ) if ($input eq ''); 
-pod2usage( {-message => q{pe1 file is required}, -exitval => 1, -verbose => 1 } ) if ($pe1 eq ''); 
-pod2usage( {-message => q{pe2 file is required}, -exitval => 1, -verbose => 1 } ) if ($pe2 eq ''); 
+
+#	pod2usage( {-message => q{pe1 file is required}, -exitval => 1, -verbose => 1 } ) if ($pe1 eq ''); 
+#	pod2usage( {-message => q{pe2 file is required}, -exitval => 1, -verbose => 1 } ) if ($pe2 eq ''); 
 
 # check input files exist
 die " - ERROR: $input could not be found." if !(-f $input);
-die " - ERROR: $pe1 could not be found." if !(-f $pe1);
-die " - ERROR: $pe2 could not be found." if !(-f $pe2);
+
+if ($ont eq ""){
+	die " - ERROR: $pe1 could not be found." if !(-f $pe1);
+	die " - ERROR: $pe2 could not be found." if !(-f $pe2);
+}else{
+	print "$ont\n\n";
+	die " - ERROR: $ont could not be found." if !(-f $ont);
+}
 
 # check output directory exists or can be created
 unless( -d $output ){ unless ( mkdir $output ) { die " - ERROR: could not create output directory ($output)\n" } };
@@ -107,7 +116,26 @@ while ($check == 1){
 		die " - ERROR: bwa index failed on $working_file - check log file\n" if $?;
 		
 		# map reads to working assembly
-		my $bwa_com = "bwa mem -t $threads $working_file $pe1 $pe2 2>>$log | samtools view - -Sb 2>>$log | samtools sort - -\@$threads -o $output/mapping.it_$it.sorted.bam >>$log 2>>$log";
+		my $map_threads = $threads;
+		$map_threads = 2 if $map_threads > 2;
+		
+		my $bwa_com = "";
+		
+		# extract reads to fastq
+		#if ($ont ne ""){
+		#	`gunzip -c $ont > $ont.temp.fq`;	
+		#}
+		
+		# ONT
+		if ($ont ne ""){
+			$bwa_com = "bwa mem -x ont2d -t $map_threads $working_file $ont 2>>$log | samtools view - -Sb 2>>$log | samtools sort - -\@$map_threads -o $output/mapping.it_$it.sorted.bam >>$log 2>>$log";
+			#print $bwa_com."\n";
+		}
+		# PE short reads 
+		else{
+			# PE short read
+			#$bwa_com = "bwa mem -t $map_threads $working_file $pe1 $pe2 2>>$log | samtools view - -Sb 2>>$log | samtools sort - -\@$map_threads -o $output/mapping.it_$it.sorted.bam >>$log 2>>$log";
+		}
 		#print $bwa_com;
 		system($bwa_com);
 		die " - ERROR: bwa failed - check log file\n" if $?;
@@ -117,7 +145,7 @@ while ($check == 1){
 		die " - ERROR: samtools index failed on $working_file - check log file\n" if $?;
 		
 		# run pilon
-		my $pilon_com = "pilon --genome $working_file --fix all --changes --frags $output/mapping.it_$it.sorted.bam --threads $threads --output $output/pilon.it_$it >>$log 2>>$log";
+		my $pilon_com = "pilon --threads $threads --genome $working_file --fix all --changes --frags $output/mapping.it_$it.sorted.bam --output $output/pilon.it_$it >>$log 2>>$log"; 
 		#print $pilon_com."\n";
 		system($pilon_com);
 		die " - ERROR: pilon failed - check log file\n" if $?;
