@@ -1,0 +1,163 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings qw(all);
+
+use Getopt::Long qw(GetOptions :config no_ignore_case);
+use Pod::Usage;
+use File::Basename;
+use FindBin;
+use Cwd 'abs_path';
+my $script_path = abs_path($FindBin::RealBin);
+
+# run sliding window GC content of input fasta file.
+
+=head1  SYNOPSIS
+
+	GC_sliding_window
+	
+ Input variants:
+ --input	input file [required] 
+ 
+ General options:
+ --size 		sliding window size [default: 50] 
+ --step 		step size [default: 50]
+ 
+ Misc options:
+ -h|--help 	usage information
+  
+=cut
+
+# command line options
+my @ARGS = @ARGV;
+my $input = "";
+my $output = "";
+
+my $size = 50;
+my $step = 50;
+
+my $help = 0;
+
+pod2usage(1) if scalar(@ARGV) == 0;
+GetOptions(
+
+	'input=s'	=> \$input,
+	'output=s' => \$output,
+	
+	'step=i' => \$step,
+	'size=i' => \$size,
+	
+	'help|?' 	=> \$help,
+
+) or die pod2usage(1);
+pod2usage(1) if $help;
+
+# open and store file
+my %seq_store; 
+my @seq = ();
+my $header = "";
+open INPUT, $input or die " - ERROR: could not open input file\n";
+while (<INPUT>){
+	
+	my $line = $_;
+	chomp $line;
+	
+	if(/^>(.+)$/){
+		
+		# store sequence
+		if ($header ne ""){
+			$seq_store{$header} = join("", @seq);
+		}
+		
+		$header = $1;
+		@seq = ();
+		
+	}elsif(/^([atcgATCGNn\-]+)$/){
+		push (@seq, uc($1));
+	}elsif(/\s+/){
+	}else{
+		die " ERROR: $line\n - ERROR: above line not recognised\n";
+	}
+	
+}close INPUT;
+
+# store final seq
+if ($header ne ""){
+	$seq_store{$header} = join("", @seq);
+}
+
+# open output file
+open OUT, ">$output" or die " - could not open output file $output\n";
+print OUT "sequence\tstart\tend\tmidpoint\twindow_size\tGC_content\tGC_skew\tAT_skew\n";
+# loop through all sequences and generate sliding window per seq.
+for my $k (sort keys %seq_store){
+
+	my $seq =  $seq_store{$k}; 
+	
+	my $total_g = () = $seq =~ /[G]/gi;
+	my $total_c = () = $seq =~ /[C]/gi;
+	my $total_a = () = $seq =~ /[A]/gi;
+	my $total_t = () = $seq =~ /[T]/gi;
+	my $total_ns = () = $seq =~ /[N]/gi;
+	my $total_pos = length($seq);	
+	
+	# summarise GC for seq
+	my $GC_content = ($total_g + $total_c)/($total_pos-$total_ns);
+	my $total_GC_skew = ($total_g - $total_c)/($total_g + $total_c); 
+	my $total_AT_skew = ($total_a - $total_t)/($total_a + $total_t); 
+
+	# print 
+	print "$k\t$total_pos\t$GC_content\t$total_GC_skew\t$total_AT_skew\n";
+	
+	# calculate per window
+	my $start = 0;
+	my $end = $size-1;
+	
+	my $cont = 1;
+	
+	while ($cont == 1){
+	
+		# check no overlap
+		if ($end>$total_pos-1){
+			$end = $total_pos-1;
+			$cont = 0;
+			$size = $end-$start;
+		}
+		
+		my $subseq = substr($seq,$start, $size); 
+		
+		my $g = () = $subseq =~ /[G]/gi;
+		my $c = () = $subseq =~ /[C]/gi;
+		my $a = () = $subseq =~ /[A]/gi;
+		my $t = () = $subseq =~ /[T]/gi;
+		 
+		# summarise GC for seq
+		my $sub_GC_content = "NA";
+		my $sub_GC_skew = "NA";
+		my $sub_AT_skew = "NA";
+		$sub_GC_content = ($g + $c)/($g + $c +$a +$t) if ($g + $c + $a + $t)>0;
+		$sub_GC_skew =($g - $c)/($g + $c) if ($g + $c)>0;
+		$sub_AT_skew =($a - $t)/($a + $t) if ($a + $t)>0;
+		
+		# print 
+		my $mid = (($start+1)+($end+1))/2;
+		my $s = $start + 1;
+		my $e = $end + 1;
+		print OUT "$k\t$s\t$e\t$mid\t$size\t$sub_GC_content\t$sub_GC_skew\t$sub_AT_skew\n";
+		
+		# increment window
+		$start = $start + $step;
+		$end = $end + $step;
+
+		# sanity check
+		if ($start >= $total_pos - 1){
+			$cont = 0;
+		}
+		
+	}
+	
+	
+}
+
+
+

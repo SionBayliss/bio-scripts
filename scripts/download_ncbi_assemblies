@@ -24,7 +24,7 @@ use File::Basename;
  		Scaffold, all [default: Complete Genome] 
  -n|--number	max number of samples to download [default: off]
  -d|--download	toggle download of isolates [default: on]	
- -g|--genebank	use ganebank accessions if available [default: refseq]
+ -g|--genebank	use genebank accessions if available [default: refseq]
  
  -h|--help 	usage information
  
@@ -39,7 +39,7 @@ my $output_dir = '';
 
 my $genbank = 0;
 my $taxid = "";
-my $status = "Complete Genome";
+my $status = "Complete";
 my $add_strain = 0;
 my $number = "";
 my $no_download = 0;
@@ -51,7 +51,7 @@ GetOptions(
 	'input=s' 	=> \$input,
 	'output=s'	=> \$output_dir,
 	
-	'genebank=s' => \$genbank, 
+	'genebank' => \$genbank, 
 	'taxid=s' 	=> \$taxid,
 	'status=s' => \$status, 
 	'add-strain' => \$add_strain,
@@ -129,23 +129,24 @@ while(<IN>){
 		my $no_headers = scalar(keys(%indexes));
 		die " - missing headers in file (n=$no_headers)\n" if $no_headers != 6; 
 
-	}
-	if(/^#Organism/){
+	}elsif(/^#Organism/){
 		print SUM "id\t$line\n";
 		$file_type = "gn";
-
+		
 		# detect columns indexes
 		for my $i (0..scalar(@vars)-1){
+
 			$indexes{"assembly"} = $i+1 if ($vars[$i] eq "Assembly");
 			$indexes{"species"} = $i+1 if ($vars[$i] eq "#Organism Name");
 			$indexes{"type"} = $i+1 if ($vars[$i] eq "Level");
 			$indexes{"strain"} = $i+1 if ($vars[$i] eq "Strain");
 			$indexes{"taxonid"} = $i+1 if ($vars[$i] eq "Organism Groups");
 			
-			$indexes{"ftp"} = $i+1 if ( ($vars[$i] eq "GenBank FTP") && ($genbank = 1) );
-			$indexes{"ftp"} = $i+1 if ( ($vars[$i] eq "RefSeq FTP") && ($genbank = 0) );			
+			$indexes{"ftp"} = $i+1 if ( ($vars[$i] eq "GenBank FTP") && ($genbank == 1) );
+			$indexes{"ftp"} = $i+1 if ( ($vars[$i] eq "RefSeq FTP") && ($genbank == 0) );
+						
 		}
-		
+
 		# sanity check
 		my $no_headers = scalar(keys(%indexes));
 		die " - missing headers in file (n=$no_headers)\n" if $no_headers != 6; 
@@ -176,9 +177,18 @@ while(<IN>){
 		$ftp = $vars[$indexes{"ftp"}-1]; # ftp # genebank
 		$tax_id = $vars[$indexes{"taxonid"}-1]; # taxonid # cladeID
 		$species = $vars[$indexes{"species"}-1]; # species
-		$type = $vars[$indexes{"ftp"}-1]; # type
+		$type = $vars[$indexes{"type"}-1]; # type
 		$strain = $vars[$indexes{"strain"}-1]; # strain	
 		
+		# check for error 
+		#my $error = 0;
+		#$error = 1 unless defined($acc);
+		#$error = 1 unless defined($ftp);
+		#$error = 1 unless defined($strain);
+		#$error = 1 unless defined($tax_id);
+		
+		# needs work here to catch missing values
+				
 		# filter on taxon id and assembly status 
 		if ( (($taxid eq "") || ($taxid_hash{$tax_id})) && ( ($type eq $status) || ($status eq "all") ) && ($excluded eq "") ){
 		
@@ -206,11 +216,12 @@ while(<IN>){
 			$iso_name = "$iso_name\-$strain_out" if ( ( $add_strain == 1 ) && ( $strain_out ne "" ) );
 			$iso_name =~ s/\./_/g;
 			
-			my $outfile = "$output_dir/$iso_name.fasta";			
+			my $outfile = "$output_dir/$iso_name.fasta";	
+					
 			# run ftp on isolate
 			if ($no_download == 0){
 				unlink("$output_dir/$iso_name.fasta") if -f "$output_dir/$iso_name.fasta";
-				`wget -O - $ftp/$file_name 2>/dev/null | gunzip -c  >  $outfile`;  
+				`wget -O - $ftp/$file_name 2>/dev/null | gunzip -c  >  $outfile`;
 			}
 			
 			if( !($?) || ($no_download == 0) ){
