@@ -4,7 +4,6 @@
 
 use strict;
 use warnings;
-use Bio::Perl;
 use Getopt::Long qw(GetOptions :config no_ignore_case);
 use Pod::Usage;
 use Cwd 'abs_path';
