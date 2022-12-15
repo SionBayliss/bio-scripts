@@ -1,0 +1,194 @@
+#!/usr/bin/env perl
+
+# Blast aa database against genome sequence 
+
+use strict;
+use warnings;
+use Bio::Perl;
+use Getopt::Long qw(GetOptions :config no_ignore_case);
+use Pod::Usage;
+use Cwd 'abs_path';
+use File::Basename;
+use FindBin;
+
+my $script_path = abs_path($FindBin::RealBin);
+
+# Version
+
+=head1  SYNOPSIS
+
+# input is fasta 
+
+# requires prokka and BLAST 
+
+=head1 Descriptions
+	
+=cut
+
+# command line options
+my $help = 0;
+my $database = "";
+my $input_dir = "";
+my $output_dir = '';
+
+my $id_thresh = 80;
+my $len_thresh = 80;
+
+GetOptions(
+	'help|?' 	=> \$help,
+	'output=s' 	=> \$output_dir,
+	'input_dir=s'	=> \$input_dir,
+	'database=s'	=> \$database,
+	
+	'per-id=f' => \$id_thresh,
+	'per-len=f' => \$len_thresh,
+	
+) or pod2usage(2);
+pod2usage(1) if $help;
+
+# check for inputs
+pod2usage( {-message => " - ERROR: input file required\n", -exitval => 1, -verbose => 1 } ) if $input_dir eq ""; 
+pod2usage( {-message => " - ERROR: ref file required\n", -exitval => 1, -verbose => 1 } ) if $database eq ""; 
+pod2usage( {-message => " - ERROR: output dir required\n", -exitval => 1, -verbose => 1 } ) if $output_dir eq ""; 
+
+# expand input and output directories
+$input_dir = abs_path($input_dir);
+unless( -d "$output_dir" ){
+	 die " - ERROR: could not make working directory in $output_dir\n" unless mkdir "$output_dir"; 
+}
+$output_dir = abs_path($output_dir);
+
+# find all input files and process sequentially
+opendir my $dir, "$input_dir" or die "Cannot open directory: $!";
+my @files = readdir $dir;
+closedir $dir;
+
+my @process = ();
+my @suffixlist = (".fasta", ".fna", ".fs", ".fas", ".faa");
+for my $i (@files){
+	my ($name,$path,$suffix) = fileparse($i,@suffixlist);
+	push(@process, $i) if ( $suffix  =~ /[fasta||fas||fa||fna||faa]$/ );
+	#print "$i\n" if ($suffix  =~ /[fasta||fas||fa||fna]$/ );
+}
+
+print " - annotating and/or running BLAST per sample\n";
+my @sample_list = ();
+for my $f (@process){
+	
+	# get file name 
+	my ($name,$path,$suffix) = fileparse($f,@suffixlist);
+
+	print " - $name\n";
+
+	# remove whitespace and stops
+	$name =~ s/\./\_/g;
+	$name =~ s/\s+/\_/g;
+	
+	# add to file list 
+	push(@sample_list, $name);
+	
+	# make output directory
+	my $out_path = "$output_dir/$name";
+	mkdir($out_path);
+
+	# check file is faa otherwise run prokka if not already present
+	my $aa_file = "$out_path/prokka/$name.faa";
+	if ($suffix eq ".faa"){ 
+		$aa_file = "$input_dir/$f";
+	}else{
+		$aa_file = "$out_path/prokka/$name.faa";
+		unless ( -f $aa_file ){
+
+			print " - annotating $name\n";
+			my $prokka_dir = "$out_path/prokka/";
+			mkdir ($prokka_dir);
+			my $prokka_log = "$out_path/prokka/log_extra.txt";
+			my $command = "prokka --outdir $prokka_dir --force --prefix $name --addgenes --locustag locus --compliant --cpus 4 $input_dir/$f 2>$prokka_log";
+			my $log = system($command);
+			die " - ERROR: prokka failed on input file - see log_extra." if $?; 
+		}
+	}
+
+	# make blastdb
+	my $db_command = "makeblastdb -in $aa_file -parse_seqids -dbtype prot >/dev/null 2>/dev/null ";
+	system($db_command);
+	
+	# run blast 
+	my $blast_output = "$out_path/blast.tsv";
+	unless ( -f $blast_output ){
+		my $blast_command = "blastp -max_hsps 1 -outfmt '6 std qlen' -num_threads 1 -max_target_seqs 10000 -query $database -db $aa_file > $blast_output"; 
+		system($blast_command);
+		unlink ($blast_output) if $?;
+	}	
+	
+}
+
+@sample_list = sort (@sample_list);
+
+# make output files
+open O1, ">$output_dir/blast_summary.tsv" or die $!;
+open O2, ">$output_dir/blast_table.tsv" or die $!;
+
+# add headers
+print O1 "Sample\tQuery Seq-id\tSubject Seq-id\tPercentage of identical matches\tAlignment length	 Number of mismatches\tNumber of gap openings\tStart of alignment in query\tEnd of alignment in query\tStart of alignment in subject\tEnd of alignment in subject\tExpect value\tBit score\tQuery Sequence Length\tPercentage Query Length of HSP\n";
+print O2 sprintf("%s\t%s\n", "loci", join("\t", @sample_list));
+
+# combine blast outputs and filter 
+print " - filtering BLAST hits and making summary tables\n";
+my %table = ();
+my %loci = ();
+for my $f (@sample_list){
+
+	# parse blast outputs - filter on %id and %coverage
+	open F, "$output_dir/$f/blast.tsv" or die $!;
+	while (<F>){
+	
+		my $line = $_;
+		chomp $line;
+		
+		my @vars = split(/\t/, $line, -1);
+	
+		my $per_id = $vars[2];
+		my $alen = $vars[3]-$vars[5];
+		my $per_lenq = ($alen/$vars[12])*100;
+		
+		$loci{$vars[0]} = 1;
+		
+		# filter 
+		if ( ($per_id >= $id_thresh) && ($per_lenq >= $len_thresh) ){
+			
+			# print to blast summary
+			print O1 "$f\t".join("\t", @vars)."\t$per_lenq\n";	
+		
+			# store table - store highest hit 
+			if ($table{$vars[0]}{$f}){
+			
+				if ($per_id > $table{$vars[0]}{$f}){
+					$table{$vars[0]}{$f} = $per_id;
+				} 
+			
+			}else{
+				$table{$vars[0]}{$f} = $per_id; 
+			}
+		}
+	
+	}close F;
+}close O1;
+
+# make summary table 
+for my $k1 ( sort keys %loci ){
+	
+	my @oline = ("$k1");
+	for my $k2 ( @sample_list ){
+		if ($table{$k1}{$k2}){
+			push(@oline, $table{$k1}{$k2});
+		}else{
+			push(@oline, "NA");
+		}
+	}
+	
+	my $oline = join("\t", @oline);
+	print O2 $oline."\n";
+}close O2;
+
+exit;
